@@ -1,6 +1,6 @@
 name: 'OpsScript Gate'
 description: 'Lightweight unprivileged container cross-distro compatibility pre-check for Linux ops scripts'
-author: 'OpsScript Gate Contributors'
+author: 'Mresyzz'
 branding:
   icon: 'shield'
   color: 'blue'
