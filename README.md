@@ -12,6 +12,10 @@
 
 **OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your shell scripts inside isolated Debian, Ubuntu, and Alpine containers before release, catching environment-specific runtime failures that static analysis cannot detect.
 
+<p align="center">
+  <img src=".github/assets/social-preview.png" alt="OpsScript Gate Terminal Preview" width="800">
+</p>
+
 ---
 
 ## ⚡ Quickstart (10 Seconds)
@@ -87,8 +91,8 @@ Failed Distributions - Output Snippets (last 15 lines):
 | :--- | :---: | :---: | :---: |
 | **Runtime execution** | **Yes** | No (Static AST only) | Yes |
 | **Real distro environments** | **Yes (Debian, Ubuntu, Alpine)** | No | Yes |
-| **Zero-boilerplate defaults** | **Yes (1 line of config)** | Yes | No (20–40 lines of YAML) |
-| **Safe container defaults** | **Built-in (`ro`, `cap_drop`, `kill`)** | N/A | User-defined (often insecure) |
+| **Zero-boilerplate defaults** | **Pre-packaged defaults** | Yes | Requires custom workflow configuration |
+| **Safe container defaults** | **Built-in (`ro`, `cap_drop`, `kill`)** | N/A | User-defined |
 | **Anti-hang stdin protection** | **Built-in (`</dev/null`, noninteractive)** | No | User-defined |
 | **Unified summary & diagnostics** | **Built-in (ASCII + Step Summary)** | Static warnings | User-defined |
 
@@ -107,7 +111,7 @@ When executing arbitrary maintenance scripts, containment is non-negotiable:
    - Privilege escalation is strictly disabled: `security_opt=["no-new-privileges:true"]`.
 2. **Read-Only Target Mount**:
    - The tested script is mounted strictly as a read-only volume (`:ro`) at `/tmp/target_script.sh`.
-   - Host filesystem paths outside the script are never accessible.
+   - OpsScript Gate does not mount additional host filesystem paths into the test container.
 3. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
    - Redirects execution: `/bin/sh -c "/bin/sh /tmp/target_script.sh </dev/null"`.
@@ -115,10 +119,10 @@ When executing arbitrary maintenance scripts, containment is non-negotiable:
    - Any script accidentally prompting for user input (`read -p`) fails immediately instead of blocking the CI pipeline for hours.
 4. **Hard Timeout & Zero-Zombie Cleanup**:
    - Enforces a strict timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
-   - Cleanup (`remove(force=True)`) is guaranteed in a `finally` block even under network interruption or abnormal termination.
+   - Cleanup is attempted in a `finally` block on all normal Python execution paths, including test failures and timeouts.
 5. **Windows CRLF Defense**:
    - Automatically detects and normalizes carriage returns (`\r\n` -> `\n`) before container execution, preventing false `\r: command not found` errors.
-6. **Strict POSIX Baseline**:
+6. **POSIX-oriented `/bin/sh` Baseline**:
    - Containers invoke `/bin/sh` directly, catching undeclared Bashism syntax (e.g. bash arrays, `[[ ... ]]`) that break in lightweight Alpine environments.
 
 ---
