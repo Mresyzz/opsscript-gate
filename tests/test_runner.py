@@ -167,6 +167,7 @@ def test_run_on_distro_pass_mock(tmp_path):
     assert create_kwargs["tty"] is False
     assert create_kwargs["environment"]["DEBIAN_FRONTEND"] == "noninteractive"
     assert create_kwargs["environment"]["CI"] == "true"
+    assert create_kwargs["security_opt"] == ["no-new-privileges:true"]
     # Verify command adheres to /bin/sh compatibility red-line
     assert create_kwargs["command"] == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
     # Verify read-only mount

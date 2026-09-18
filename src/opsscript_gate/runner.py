@@ -148,6 +148,7 @@ def run_on_distro(
                 tty=False,
                 privileged=False,
                 cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true"],
                 network_mode="bridge",
                 detach=True,
             )
@@ -162,6 +163,7 @@ def run_on_distro(
                 tty=False,
                 privileged=False,
                 cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true"],
                 network_mode="bridge",
                 detach=True,
             )

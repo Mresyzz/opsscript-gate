@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Scenario 1: Fully compatible POSIX script passes on all 4 distributions
       - name: "Scenario 1: POSIX script verification (Expect: ALL PASS)"
