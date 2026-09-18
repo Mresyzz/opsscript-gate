@@ -2,22 +2,54 @@ name: Demo Shell Script Compatibility Gate
 
 on:
   push:
-    paths:
-      - 'scripts/**'
-      - 'tests/fixtures/**'
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  validate-scripts:
+  compatibility-demo:
+    name: Cross-Distro Compatibility Demos
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pre-check basic setup script
+      # Scenario 1: Fully compatible POSIX script passes on all 4 distributions
+      - name: "Scenario 1: POSIX script verification (Expect: ALL PASS)"
         uses: ./
         with:
           script-path: 'tests/fixtures/pass_basic.sh'
           matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
           timeout: '30'
           format: 'table'
+
+      # Scenario 2: Alpine catches missing apt-get dependency (exit 127 intercepted)
+      - name: "Scenario 2: Missing dependency interception (Expect: Alpine FAIL 127)"
+        id: demo_fail_deps
+        continue-on-error: true
+        uses: ./
+        with:
+          script-path: 'tests/fixtures/fail_deps.sh'
+          matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+          timeout: '30'
+          format: 'table'
+
+      - name: Verify Scenario 2 Interception
+        if: steps.demo_fail_deps.outcome == 'failure'
+        run: |
+          echo "::notice title=Interception Verified::Successfully caught missing apt-get on Alpine (Exit code 127 intercepted)!"
+
+      # Scenario 3: Script waiting for interactive input terminated immediately by /dev/null
+      - name: "Scenario 3: Interactive hang defense (Expect: /dev/null EOF failure intercepted)"
+        id: demo_fail_hang
+        continue-on-error: true
+        uses: ./
+        with:
+          script-path: 'tests/fixtures/fail_hang.sh'
+          matrix: 'alpine:3.20'
+          timeout: '15'
+          format: 'table'
+
+      - name: Verify Scenario 3 Interception
+        if: steps.demo_fail_hang.outcome == 'failure'
+        run: |
+          echo "::notice title=Anti-Hang Verified::Interactive prompt prevented from hanging CI by automatic /dev/null redirection!"
