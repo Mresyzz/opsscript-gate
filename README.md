@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Supported Distros](https://img.shields.io/badge/matrix-Debian%20%7C%20Ubuntu%20%7C%20Alpine-orange.svg)](#default-test-matrix)
 
-**OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your shell scripts inside isolated Debian, Ubuntu, and Alpine containers before release, catching environment-specific runtime failures that static analysis cannot detect.
+**OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your shell scripts inside separate Debian, Ubuntu, and Alpine Docker containers before release, catching environment-specific runtime failures that static analysis cannot detect.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Mresyzz/opsscript-gate/main/.github/assets/social-preview.png" alt="OpsScript Gate Terminal Preview" width="800">
@@ -23,26 +23,30 @@
 
 ### In GitHub Actions
 
-Add one step to your pull request workflow (`.github/workflows/gate.yml`):
+Here is a complete minimal workflow to drop into `.github/workflows/shell-compat.yml`:
 
 ```yaml
-- name: Verify Shell Script Portability
-  uses: Mresyzz/opsscript-gate@v0.2.1
-  with:
-    script-path: scripts/setup.sh
-    # shell: posix  # optional: 'posix' (default), 'shebang', or 'auto'
+name: Shell compatibility
+on: [pull_request]
+
+jobs:
+  shell-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Mresyzz/opsscript-gate@v0.2.1
+        with:
+          script-path: scripts/setup.sh
+          shell: auto
 ```
 
 ### In Local Terminal (CLI)
 
-Requires Python 3.10+ and a local Docker engine:
+Requires Python 3.10+ and a running local Docker engine:
 
 ```bash
 # Install from PyPI
 pip install opsscript-gate
-
-# Latest development version
-pip install git+https://github.com/Mresyzz/opsscript-gate.git
 
 # Run compatibility gate against your script
 opsscript-gate run ./scripts/setup.sh
@@ -110,9 +114,11 @@ Failed Distributions - Output Snippets (last 15 lines):
 
 ## Security Boundaries
 
-OpsScript Gate uses conservative container defaults when running scripts:
+OpsScript Gate is not a security sandbox for untrusted code. Containers may run as the image's default user, and Docker/host-kernel security boundaries still apply.
 
-1. **Unprivileged by Design**:
+OpsScript Gate applies conservative container defaults when running scripts:
+
+1. **Restricted Container Defaults**:
    - Containers run with `privileged=False`.
    - All Linux capabilities are dropped: `cap_drop=["ALL"]`.
    - Privilege escalation is disabled: `security_opt=["no-new-privileges:true"]`.
@@ -121,7 +127,7 @@ OpsScript Gate uses conservative container defaults when running scripts:
    - OpsScript Gate does not mount additional host filesystem paths into the test container.
 3. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
-   - Redirects execution: `/bin/sh -c "/bin/sh /tmp/target_script.sh </dev/null"`.
+   - Redirects execution with input disconnected: `/bin/sh -c "... /tmp/target_script.sh </dev/null"`.
    - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`.
    - Any script prompting for user input (`read -p`) fails immediately instead of blocking the CI runner.
 4. **Timeout & Container Cleanup**:
@@ -129,8 +135,8 @@ OpsScript Gate uses conservative container defaults when running scripts:
    - Container removal is attempted from a `finally` block during normal Python execution paths, including failures and timeouts.
 5. **Windows CRLF Defense**:
    - Automatically detects and normalizes carriage returns (`\r\n` -> `\n`) before container execution, preventing false `\r: command not found` errors.
-6. **POSIX-oriented `/bin/sh` Baseline**:
-   - Containers invoke `/bin/sh` directly, catching undeclared Bashism syntax (e.g. bash arrays, `[[ ... ]]`) that break in lightweight Alpine environments.
+6. **Minimal `/bin/sh` Baseline**:
+   - In default POSIX mode, containers invoke `/bin/sh` directly, catching undeclared Bashism syntax (e.g. bash arrays, `[[ ... ]]`) that break in lightweight Alpine environments.
 
 ---
 
@@ -141,7 +147,7 @@ OpsScript Gate uses conservative container defaults when running scripts:
 | `debian:12-slim` | Debian 12 (Bookworm) | Minimal glibc + APT base |
 | `ubuntu:22.04` | Ubuntu 22.04 LTS (Jammy) | Enterprise long-term support baseline |
 | `ubuntu:24.04` | Ubuntu 24.04 LTS (Noble) | Modern glibc, updated coreutils & defaults |
-| `alpine:3.20` | Alpine Linux 3.20 | Minimal musl libc + BusyBox (strict POSIX test) |
+| `alpine:3.20` | Alpine Linux 3.20 | Minimal musl libc + BusyBox /bin/sh environment |
 
 You can customize the matrix at any time via `--matrix` or Action input `matrix`.
 
@@ -168,7 +174,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [--timeout TIMEOUT]
 
 ### Shell Execution Modes (`--shell`)
 
-- **`posix`** (default): Strictly executes with `/bin/sh`, ignoring any script shebang. Ideal for verifying that your script runs in minimal POSIX-compliant environments (e.g. Alpine BusyBox).
+- **`posix`** (default): Strictly executes with `/bin/sh`, ignoring any script shebang. Useful for verifying that your script runs under minimal `/bin/sh` environments, including Alpine BusyBox.
 - **`shebang`**: Strictly honors the interpreter specified in the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/sh`, `#!/usr/bin/bash`, `#!/usr/bin/env sh`, `#!/usr/bin/env bash`). If the shebang is missing, malformed, or specifies an unsupported interpreter/flag, the check fails immediately with an error before running containers.
 - **`auto`**: Honors recognized shebangs if present; falls back to `/bin/sh` if no shebang is declared. Scripts with explicit unsupported or malformed shebangs fail immediately with an error (does not silently execute as POSIX).
 
@@ -191,7 +197,7 @@ Check out the [examples/](examples/) directory for self-contained, runnable scen
 
 ## Dogfooding
 
-OpsScript Gate is used in [`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) to validate its `install.sh` script across the default Debian, Ubuntu, and Alpine matrix in GitHub Actions. That workflow pins `Mresyzz/opsscript-gate@v0.2.0` with `shell: auto`.
+OpsScript Gate is used in [`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) to validate its `install.sh` script across the default Debian, Ubuntu, and Alpine matrix in GitHub Actions. That workflow pins `Mresyzz/opsscript-gate@v0.2.1` with `shell: auto`.
 
 See the downstream workflow: [`.github/workflows/test.yml`](https://github.com/Mresyzz/linux-dev-bootstrap/blob/main/.github/workflows/test.yml).
 
@@ -206,6 +212,9 @@ The test suite uses Docker SDK mocking to ensure fast unit tests without needing
 git clone https://github.com/Mresyzz/opsscript-gate.git
 cd opsscript-gate
 pip install -e .[test]
+
+# Or install latest unreleased code directly from Git:
+# pip install git+https://github.com/Mresyzz/opsscript-gate.git
 
 # Run unit tests (mocked)
 pytest -v -m "not integration"

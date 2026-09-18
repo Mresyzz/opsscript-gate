@@ -30,7 +30,9 @@ Reports will be reviewed as maintainer availability allows.
 
 ## Runner Security Boundaries
 
+OpsScript Gate is not a security sandbox for untrusted code. Containers may run as the image's default user, and Docker containers still share the host kernel.
+
 OpsScript Gate applies conservative container defaults when running scripts:
-- **Unprivileged Execution**: Containers run with `privileged=False`, `cap_drop=["ALL"]`, and `security_opt=["no-new-privileges:true"]`.
+- **Restricted Container Defaults**: Containers run with `privileged=False`, `cap_drop=["ALL"]`, and `security_opt=["no-new-privileges:true"]`.
 - **Read-Only Mounting**: Target scripts are mounted read-only (`:ro`). OpsScript Gate does not mount additional host filesystem paths into test containers.
 - **Resource Protection**: Containers are subject to timeouts and `SIGKILL` termination. Container removal is attempted from a `finally` block during normal Python execution paths, including failures and timeouts.
