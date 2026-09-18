@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-19
+
+### Fixed
+- Strip complete ANSI CSI and OSC escape sequences from diagnostic text instead of leaving escape-sequence residue.
+- Ensure diagnostic `max_length` includes the trailing ellipsis when truncation occurs.
+- Add regression coverage for ANSI sanitization and truncation edge cases.
+
+---
+
 ## [0.2.0] - 2026-09-18
 
 ### Added

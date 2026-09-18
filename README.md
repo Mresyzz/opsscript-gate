@@ -27,7 +27,7 @@ Add one step to your pull request workflow (`.github/workflows/gate.yml`):
 
 ```yaml
 - name: Verify Shell Script Portability
-  uses: Mresyzz/opsscript-gate@v0.2.0
+  uses: Mresyzz/opsscript-gate@v0.2.1
   with:
     script-path: scripts/setup.sh
     # shell: posix  # optional: 'posix' (default), 'shebang', or 'auto'
