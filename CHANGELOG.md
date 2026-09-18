@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-18
+
+### Added
+- Explicit shell execution modes (`--shell posix|shebang|auto`) in CLI and GitHub Action.
+  - `posix` (default): Strictly executes with `/bin/sh`, ignoring any script shebang to verify portability against minimal POSIX environments.
+  - `shebang`: Strictly honors recognized shebang interpreters (`sh`, `bash`, `/usr/bin/env`). Fails immediately with clear diagnostics if missing, malformed, or unsupported.
+  - `auto`: Uses recognized shebang when present; safely falls back to `/bin/sh` if no shebang is present; rejects unsupported/malformed shebangs without silent fallback.
+- Exact interpreter-path preservation using fixed trusted container command constants (`SUPPORTED_SHEBANG_COMMANDS`), preventing `$PATH` resolution from masking missing paths like `/usr/bin/bash`.
+- Hardened GitHub Action input passing via step-level environment variables to eliminate shell injection risks.
+- Dedicated Docker integration test job in GitHub Actions workflow verifying real container behaviors (including bash missing on Alpine 3.20).
+- Sanitized shebang error diagnostics against control character injection and multiline pollution.
+
+---
+
 ## [0.1.2] - 2026-09-18
 
 ### Added

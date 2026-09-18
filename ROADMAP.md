@@ -9,8 +9,8 @@ This roadmap tracks features being considered for future releases.
 ## Planned Features
 
 ### 1. Execution Modes (`--shell`)
-- [x] **Shebang-aware execution (`--shell shebang | auto`)**: Implemented on branch `feat/shell-mode` (upcoming release). Parses and honors recognized shebang forms (`sh`, `bash`) across distributions using fixed trusted container commands.
-- [x] **Explicit POSIX mode (`--shell posix`)**: Implemented on branch `feat/shell-mode` (upcoming release). Retains `/bin/sh` baseline across all containers to verify strict POSIX portability.
+- [x] **Shebang-aware execution (`--shell shebang | auto`)**: Implemented in v0.2.0. Parses and honors recognized shebang forms (`sh`, `bash`) across distributions using fixed trusted container commands.
+- [x] **Explicit POSIX mode (`--shell posix`)**: Implemented in v0.2.0. Retains `/bin/sh` baseline across all containers to verify strict POSIX portability.
 
 ### 2. Resource Constraints
 - [ ] **Memory limits (`--mem-limit`)**: Planned. Constrain container memory usage for scripts under test.
