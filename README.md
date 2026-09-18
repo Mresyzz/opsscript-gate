@@ -4,9 +4,10 @@
 
 [![CI](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml)
 [![Demo](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml)
+[![PyPI](https://img.shields.io/pypi/v/opsscript-gate)](https://pypi.org/project/opsscript-gate/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/opsscript-gate)](https://pypi.org/project/opsscript-gate/)
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-OpsScript%20Gate-blue?logo=github&color=2088FF)](https://github.com/marketplace/actions/opsscript-gate)
 [![Release](https://img.shields.io/github/v/release/Mresyzz/opsscript-gate?color=green)](https://github.com/Mresyzz/opsscript-gate/releases)
-[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Supported Distros](https://img.shields.io/badge/matrix-Debian%20%7C%20Ubuntu%20%7C%20Alpine-orange.svg)](#default-test-matrix)
 
@@ -26,7 +27,7 @@ Add one step to your pull request workflow (`.github/workflows/gate.yml`):
 
 ```yaml
 - name: Verify Shell Script Portability
-  uses: Mresyzz/opsscript-gate@v0.1.1
+  uses: Mresyzz/opsscript-gate@v0.1.2
   with:
     script-path: scripts/setup.sh
 ```
@@ -36,7 +37,10 @@ Add one step to your pull request workflow (`.github/workflows/gate.yml`):
 Requires Python 3.10+ and a local Docker engine:
 
 ```bash
-# Install directly from GitHub
+# Install from PyPI
+pip install opsscript-gate
+
+# Latest development version
 pip install git+https://github.com/Mresyzz/opsscript-gate.git
 
 # Run compatibility gate against your script
@@ -192,6 +196,17 @@ pytest -v -m "not integration"
 # Run integration tests (Requires Docker daemon)
 pytest -v
 ```
+
+---
+
+## Current limitations
+
+- Requires access to a Docker daemon.
+- Scripts are currently executed with `/bin/sh`, regardless of their shebang.
+- Distribution runs are currently sequential.
+- Containers use bridge networking by default.
+- Failure reports currently include only a tail of captured output.
+- OpsScript Gate checks runtime execution and exit status; it does not validate application-specific outcomes.
 
 ---
 
