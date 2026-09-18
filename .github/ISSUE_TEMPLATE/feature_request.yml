@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        We appreciate feature suggestions! Please note our security red lines: no privileged containers, read-only script mounts, and hard timeouts.
+        We appreciate feature suggestions! Please note our security boundaries: no privileged containers, read-only script mounts, and timeouts.
   - type: textarea
     id: problem
     attributes:
@@ -29,5 +29,5 @@ body:
       options:
         - label: Does NOT require container privilege or root access on the host.
           required: true
-        - label: Respects strict timeouts and non-interactive execution.
+        - label: Respects timeouts and non-interactive execution.
           required: true

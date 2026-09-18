@@ -18,7 +18,7 @@ body:
   - type: textarea
     id: use_case
     attributes:
-      label: Rationale & Industry Use Case
+      label: Rationale & Use Case
       description: Why is testing this distribution valuable for production ops scripts?
     validations:
       required: true

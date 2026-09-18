@@ -13,25 +13,23 @@ Only the latest release of **OpsScript Gate** receives security updates and bug 
 
 ## Reporting a Vulnerability
 
-The security of OpsScript Gate and host container isolation is our highest priority. If you discover a security vulnerability, especially one concerning **host escape, privilege escalation, or arbitrary filesystem access**, please **do not disclose it via a public GitHub issue**.
+Please report security issues privately rather than opening a public issue.
 
-Instead, please report security issues responsibly through one of the following channels:
-
-1. **GitHub Private Vulnerability Reporting** (Official Channel):
-   - Navigate to the [Security Advisories](https://github.com/Mresyzz/opsscript-gate/security/advisories/new) page of the repository and click **Report a vulnerability**. This provides an encrypted, private communication channel with maintainers without exposing private email addresses.
+If you discover a vulnerability, report it through **GitHub Private Vulnerability Reporting**:
+- Navigate to the [Security Advisories](https://github.com/Mresyzz/opsscript-gate/security/advisories/new) page of the repository and click **Report a vulnerability**.
 
 ### Information to Include
 - A description of the issue and its potential impact.
 - Step-by-step reproduction instructions or a minimal proof-of-concept (PoC) script.
 - Affected environment details (OS, Docker version, Python version).
 
-We commit to acknowledging your report within **48 hours** and providing regular status updates regarding verification and patches.
+Reports will be reviewed as maintainer availability allows.
 
 ---
 
-## Security Boundaries & Design
+## Runner Security Boundaries
 
-OpsScript Gate enforces several design-level security guarantees:
-- **Unprivileged Execution**: All containers are executed with `privileged=False`, `cap_drop=["ALL"]`, and `security_opt=["no-new-privileges:true"]`.
-- **Read-Only Mounting**: Target scripts are mounted strictly with the `:ro` flag. Sensitive host directories are explicitly disallowed.
-- **Resource Protection**: Containers are subject to hard timeouts and forced `SIGKILL` termination, followed by guaranteed container removal in `finally` blocks.
+OpsScript Gate applies conservative container defaults when running scripts:
+- **Unprivileged Execution**: Containers run with `privileged=False`, `cap_drop=["ALL"]`, and `security_opt=["no-new-privileges:true"]`.
+- **Read-Only Mounting**: Target scripts are mounted read-only (`:ro`). OpsScript Gate does not mount additional host filesystem paths into test containers.
+- **Resource Protection**: Containers are subject to timeouts and `SIGKILL` termination. Container removal is attempted from a `finally` block during normal Python execution paths, including failures and timeouts.

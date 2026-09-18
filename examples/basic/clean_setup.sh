@@ -1,6 +1,6 @@
 #!/bin/sh
 # clean_setup.sh: Fully POSIX-compliant environment preparation script
-# Guaranteed to exit 0 across Debian, Ubuntu, and Alpine.
+# Designed to exit 0 across Debian, Ubuntu, and Alpine.
 set -e
 
 echo "[+] Initializing clean directory layout..."

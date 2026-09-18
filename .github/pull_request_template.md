@@ -5,13 +5,13 @@ Briefly describe the change and the motivation behind it.
 ## Changes Made
 - 
 
-## Security Red Lines Verification
+## Runner Safety Verification
 Please check all that apply:
-- [ ] No privileged container mode introduced (`privileged=False` maintained)
+- [ ] Unprivileged mode maintained (`privileged=False`)
 - [ ] Capabilities drop maintained (`cap_drop=["ALL"]`)
 - [ ] `no-new-privileges:true` maintained
-- [ ] Target scripts remain mounted strictly read-only (`:ro`)
-- [ ] Timeout and zero-zombie container cleanup logic preserved
+- [ ] Target scripts remain mounted read-only (`:ro`)
+- [ ] Timeout and container cleanup logic preserved
 
 ## Testing
 - [ ] Unit tests added/updated (`pytest -v -m "not integration"`)

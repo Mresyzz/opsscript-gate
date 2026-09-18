@@ -4,7 +4,7 @@ Thank you for your interest in contributing to **OpsScript Gate**! We welcome bu
 
 ---
 
-## 🛠️ Development Setup
+## Development Setup
 
 OpsScript Gate requires **Python 3.10+** and a standard virtual environment.
 
@@ -23,47 +23,47 @@ pip install -e .[test]
 
 ---
 
-## 🧪 Running Tests
+## Running Tests
 
-We maintain strict test suite isolation:
-- **Unit tests with Mocking**: Run in sub-seconds and do **not** require a running Docker daemon.
-- **Integration tests**: Labeled with `@pytest.mark.integration` and test against live Docker containers.
+The test suite separates mocked unit tests from Docker integration tests:
+- **Unit tests**: Use mocking and do not require a running Docker daemon.
+- **Integration tests**: Labeled with `@pytest.mark.integration` and run against real Docker containers.
 
 ```bash
-# Run unit tests (Mocked, recommended for daily development)
+# Run unit tests (recommended for daily development)
 pytest -v -m "not integration"
 
 # Run full test suite including live Docker integration tests
 pytest -v
 ```
 
-All pull requests must pass the unit test suite with 100% success rate.
+Pull requests should pass the unit test suite.
 
 ---
 
-## 🛡️ Core Security Red Lines (Strictly Enforced)
+## Runner safety constraints
 
-Any changes affecting the container runner **must strictly adhere** to the following security boundaries:
+Any changes affecting the container runner should preserve these constraints:
 
-1. **Never use privileged containers**:
-   - `privileged` must remain `False`.
+1. **Unprivileged execution**:
+   - Containers must not run with `privileged=True`.
    - `cap_drop` must remain `["ALL"]`.
    - `security_opt` must include `["no-new-privileges:true"]`.
-2. **Read-only script mounting**:
-   - Target scripts must always be mounted in read-only mode (`:ro`).
-   - Never mount sensitive host paths (e.g. `/var/run/docker.sock`, `/etc`, `/sys`, `/proc`).
-3. **Hard timeouts and zero-zombie cleanup**:
-   - Containers must be terminated with `container.kill()` upon reaching timeout limits.
-   - Resource cleanup (`container.remove(force=True)`) must be executed inside a `finally` block to prevent orphaned containers.
-4. **Anti-hang non-interactive execution**:
-   - Standard input must remain detached (`stdin_open=False`, `tty=False`) and bound to `/dev/null`.
-   - Always inject `DEBIAN_FRONTEND=noninteractive` and `CI=true`.
-5. **Modest feature scope**:
-   - Do not attempt to emulate systemd, cgroups, or real network firewalls inside containers. Focus on basic script execution, command availability, and non-zero exit codes.
+2. **Read-only script mount**:
+   - Target scripts must remain read-only (`:ro`).
+   - Do not mount additional host filesystem paths into test containers.
+3. **Timeout & cleanup**:
+   - Containers reaching timeout limits should be terminated with `container.kill()`.
+   - Container removal in `finally` blocks must be preserved.
+4. **Non-interactive execution**:
+   - Standard input should remain detached (`stdin_open=False`, `tty=False`, `</dev/null`).
+   - Keep non-interactive environment variables (`DEBIAN_FRONTEND=noninteractive`, `CI=true`).
+5. **Scope**:
+   - Avoid emulating complex init systems (like systemd) inside containers; the runner focuses on standard script execution, command availability, and exit codes.
 
 ---
 
-## 📦 Adding a New Linux Distribution to the Matrix
+## Adding a New Linux Distribution
 
 To propose or add a new distribution image:
 1. Ensure the official image is available on Docker Hub and is publicly accessible.
@@ -73,7 +73,7 @@ To propose or add a new distribution image:
 
 ---
 
-## 📝 Pull Request Workflow
+## Pull Request Workflow
 
 1. Fork the repository and create a descriptive feature branch from `main`.
 2. Make your modifications, adhering to standard Python formatting (PEP 8) and type hints.

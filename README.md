@@ -18,7 +18,7 @@
 
 ---
 
-## ⚡ Quickstart (10 Seconds)
+## Quickstart
 
 ### In GitHub Actions
 
@@ -45,9 +45,9 @@ opsscript-gate run ./scripts/setup.sh
 
 ---
 
-## 🎯 30-Second Demo: What Static Linters Miss
+## Example: What Static Analysis Misses
 
-Consider this innocent-looking deployment script:
+Consider this deployment script:
 
 ```bash
 #!/bin/sh
@@ -56,20 +56,20 @@ echo "Fetching package information..."
 apt-get --version
 ```
 
-Running `shellcheck` reports **0 errors, 0 warnings** because the syntax is perfectly valid POSIX shell.
+Running `shellcheck` reports **0 errors, 0 warnings** because the syntax is valid POSIX shell.
 
 However, when verified with **OpsScript Gate**:
 
 ```text
-+--------------------+----------+-----------+------------+----------------------------------------------------+
-| Distro             | Status   | Exit Code | Duration   | Details                                            |
-+--------------------+----------+-----------+------------+----------------------------------------------------+
-| debian:12-slim     | PASS     | 0         | 1.15s      | OK                                                 |
-| ubuntu:22.04       | PASS     | 0         | 1.08s      | OK                                                 |
-| ubuntu:24.04       | PASS     | 0         | 1.12s      | OK                                                 |
-| alpine:3.20        | FAIL     | 127       | 0.45s      | Script failed with non-zero exit code: 127         |
-+--------------------+----------+-----------+------------+----------------------------------------------------+
-Total duration: 3.80s | Result: FAILED
++--------------------+----------+-----------+----------------------------------------------------+
+| Distro             | Status   | Exit Code | Details                                            |
++--------------------+----------+-----------+----------------------------------------------------+
+| debian:12-slim     | PASS     | 0         | OK                                                 |
+| ubuntu:22.04       | PASS     | 0         | OK                                                 |
+| ubuntu:24.04       | PASS     | 0         | OK                                                 |
+| alpine:3.20        | FAIL     | 127       | Script failed with non-zero exit code: 127         |
++--------------------+----------+-----------+----------------------------------------------------+
+Result: FAILED
 
 ============================================================
 Failed Distributions - Output Snippets (last 15 lines):
@@ -79,11 +79,13 @@ Failed Distributions - Output Snippets (last 15 lines):
 /tmp/target_script.sh: line 4: apt-get: not found
 ```
 
-**Why it failed:** Alpine Linux is musl/BusyBox-based and uses `apk`, not `apt-get`. OpsScript Gate detects the missing utility (`exit code 127`) in milliseconds before the script breaks production.
+*Example output; timing values omitted because they vary by host and image cache state.*
+
+**Why it failed:** Alpine Linux is musl/BusyBox-based and uses `apk`, not `apt-get`. OpsScript Gate catches the missing utility (`exit code 127`) during test execution, before the script is deployed.
 
 ---
 
-## 💡 Why OpsScript Gate?
+## Why OpsScript Gate?
 
 ### OpsScript Gate vs ShellCheck vs Custom CI Matrix
 
@@ -91,35 +93,35 @@ Failed Distributions - Output Snippets (last 15 lines):
 | :--- | :---: | :---: | :---: |
 | **Runtime execution** | **Yes** | No (Static AST only) | Yes |
 | **Real distro environments** | **Yes (Debian, Ubuntu, Alpine)** | No | Yes |
-| **Zero-boilerplate defaults** | **Pre-packaged defaults** | Yes | Requires custom workflow configuration |
+| **Preconfigured defaults** | **Yes** | Yes | Requires custom workflow configuration |
 | **Safe container defaults** | **Built-in (`ro`, `cap_drop`, `kill`)** | N/A | User-defined |
 | **Anti-hang stdin protection** | **Built-in (`</dev/null`, noninteractive)** | No | User-defined |
 | **Unified summary & diagnostics** | **Built-in (ASCII + Step Summary)** | Static warnings | User-defined |
 
 - **ShellCheck** is indispensable for static analysis (syntax, quoting, SC warnings). OpsScript Gate complements it by testing actual execution behavior in real distributions.
-- **Handwritten CI Matrix** requires maintaining complex Docker configurations, volume mounts, timeout guards, and log parsers across every project. OpsScript Gate packages all of this into a single, reliable gate.
+- **Handwritten CI Matrix** requires maintaining complex Docker configurations, volume mounts, timeout guards, and log parsers across every project. OpsScript Gate packages this into a single check.
 
 ---
 
-## 🛡️ Security & Isolation Boundaries
+## Security Boundaries
 
-When executing arbitrary maintenance scripts, containment is non-negotiable:
+OpsScript Gate uses conservative container defaults when running scripts:
 
 1. **Unprivileged by Design**:
    - Containers run with `privileged=False`.
    - All Linux capabilities are dropped: `cap_drop=["ALL"]`.
-   - Privilege escalation is strictly disabled: `security_opt=["no-new-privileges:true"]`.
+   - Privilege escalation is disabled: `security_opt=["no-new-privileges:true"]`.
 2. **Read-Only Target Mount**:
-   - The tested script is mounted strictly as a read-only volume (`:ro`) at `/tmp/target_script.sh`.
+   - The tested script is mounted read-only (`:ro`) at `/tmp/target_script.sh`.
    - OpsScript Gate does not mount additional host filesystem paths into the test container.
 3. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
    - Redirects execution: `/bin/sh -c "/bin/sh /tmp/target_script.sh </dev/null"`.
    - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`.
-   - Any script accidentally prompting for user input (`read -p`) fails immediately instead of blocking the CI pipeline for hours.
-4. **Hard Timeout & Zero-Zombie Cleanup**:
-   - Enforces a strict timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
-   - Cleanup is attempted in a `finally` block on all normal Python execution paths, including test failures and timeouts.
+   - Any script prompting for user input (`read -p`) fails immediately instead of blocking the CI runner.
+4. **Timeout & Container Cleanup**:
+   - Enforces a configurable timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
+   - Container removal is attempted from a `finally` block during normal Python execution paths, including failures and timeouts.
 5. **Windows CRLF Defense**:
    - Automatically detects and normalizes carriage returns (`\r\n` -> `\n`) before container execution, preventing false `\r: command not found` errors.
 6. **POSIX-oriented `/bin/sh` Baseline**:
@@ -127,7 +129,7 @@ When executing arbitrary maintenance scripts, containment is non-negotiable:
 
 ---
 
-## 🌐 Default Test Matrix
+## Default Test Matrix
 
 | Image | Distribution | Focus |
 | :--- | :--- | :--- |
@@ -140,7 +142,7 @@ You can customize the matrix at any time via `--matrix` or Action input `matrix`
 
 ---
 
-## 📖 CLI Reference
+## CLI Reference
 
 ```text
 usage: opsscript-gate run [-h] [--matrix MATRIX] [--timeout TIMEOUT]
@@ -163,7 +165,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [--timeout TIMEOUT]
 
 ---
 
-## 📁 Examples
+## Examples
 
 Check out the [examples/](examples/) directory for self-contained, runnable scenarios:
 
@@ -174,9 +176,9 @@ Check out the [examples/](examples/) directory for self-contained, runnable scen
 
 ---
 
-## 🧪 Local Development & Testing
+## Development & Testing
 
-The test suite uses full Docker SDK mocking to ensure lightning-fast unit tests without needing a local daemon:
+The test suite uses Docker SDK mocking to ensure fast unit tests without needing a local daemon:
 
 ```bash
 # Clone and install with test dependencies
@@ -184,7 +186,7 @@ git clone https://github.com/Mresyzz/opsscript-gate.git
 cd opsscript-gate
 pip install -e .[test]
 
-# Run unit tests (Mocked, runs in < 0.5s)
+# Run unit tests (mocked)
 pytest -v -m "not integration"
 
 # Run integration tests (Requires Docker daemon)
@@ -193,7 +195,7 @@ pytest -v
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned capabilities, including:
 - Shebang-aware execution modes (`--shell auto|posix|shebang`)
@@ -203,14 +205,14 @@ See [ROADMAP.md](ROADMAP.md) for planned capabilities, including:
 
 ---
 
-## 🤝 Community & Security
+## Contributing & Security
 
-- **Contributing**: Please review [CONTRIBUTING.md](CONTRIBUTING.md) for pull request guidelines and security red lines.
+- **Contributing**: Please review [CONTRIBUTING.md](CONTRIBUTING.md) for pull request guidelines and security boundaries.
 - **Security Policy**: Read [SECURITY.md](SECURITY.md) to report vulnerabilities responsibly.
 - **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
-## 📄 License
+## License
 
 OpsScript Gate is licensed under the [MIT License](LICENSE).
