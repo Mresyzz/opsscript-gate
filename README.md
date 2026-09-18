@@ -189,6 +189,14 @@ Check out the [examples/](examples/) directory for self-contained, runnable scen
 
 ---
 
+## Dogfooding
+
+OpsScript Gate is used in [`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) to validate its `install.sh` script across the default Debian, Ubuntu, and Alpine matrix in GitHub Actions. That workflow pins `Mresyzz/opsscript-gate@v0.2.0` with `shell: auto`.
+
+See the downstream workflow: [`.github/workflows/test.yml`](https://github.com/Mresyzz/linux-dev-bootstrap/blob/main/.github/workflows/test.yml).
+
+---
+
 ## Development & Testing
 
 The test suite uses Docker SDK mocking to ensure fast unit tests without needing a local daemon:
