@@ -255,6 +255,55 @@ def prepare_script(script_path: str) -> tuple[str, tempfile.NamedTemporaryFile |
     return abs_path, None
 
 
+def _error_result(distro: str, message: str, duration: float = 0.0) -> SingleResult:
+    """Construct an ERROR SingleResult with standard empty/None values."""
+    return SingleResult(
+        distro=distro,
+        status=DistroStatus.ERROR,
+        exit_code=None,
+        duration=duration,
+        output_snippet="",
+        error_message=message,
+    )
+
+
+def _resolve_shell_command(
+    mode: ShellMode,
+    script_path: str,
+    parsed_shebang: ShebangParseResult | None = None,
+) -> tuple[list[str] | None, str | None]:
+    """
+    Resolve the container execution command based on shell mode and script shebang.
+    Returns (command, None) on success, or (None, error_message) on error.
+    Guarantees commands are strictly fixed trusted constants from SUPPORTED_SHEBANG_COMMANDS.
+    """
+    if mode == ShellMode.POSIX:
+        # posix: strictly /bin/sh; do not parse shebang at all
+        return list(DEFAULT_POSIX_COMMAND), None
+
+    shebang_res = parsed_shebang if parsed_shebang is not None else inspect_shebang(script_path)
+
+    if shebang_res.status == ShebangStatus.MISSING:
+        if mode == ShellMode.SHEBANG:
+            return None, "No shebang found in script (required by --shell shebang)"
+        # ShellMode.AUTO: fallback to /bin/sh
+        return list(DEFAULT_POSIX_COMMAND), None
+
+    if shebang_res.status == ShebangStatus.MALFORMED:
+        return None, shebang_res.error_message or "Malformed shebang in script"
+
+    if shebang_res.status == ShebangStatus.UNSUPPORTED:
+        return None, shebang_res.error_message or "Unsupported shebang interpreter"
+
+    if shebang_res.status == ShebangStatus.RECOGNIZED:
+        cmd_key = shebang_res.command_key
+        if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
+            return list(SUPPORTED_SHEBANG_COMMANDS[cmd_key]), None
+        return None, f"Unsupported shebang command: {cmd_key}"
+
+    return None, f"Unexpected shebang status: {shebang_res.status}"
+
+
 def run_on_distro(
     client: docker.DockerClient,
     script_path: str,
@@ -271,120 +320,25 @@ def run_on_distro(
     try:
         mode = ShellMode(shell_mode)
     except ValueError:
-        return SingleResult(
+        return _error_result(
             distro=distro,
-            status=DistroStatus.ERROR,
-            exit_code=None,
-            duration=0.0,
-            output_snippet="",
-            error_message=f"Invalid shell mode: '{shell_mode}'. Choose from: posix, shebang, auto.",
+            message=f"Invalid shell mode: '{shell_mode}'. Choose from: posix, shebang, auto.",
         )
 
     abs_script = os.path.abspath(script_path)
     if not os.path.isfile(abs_script):
-        return SingleResult(
-            distro=distro,
-            status=DistroStatus.ERROR,
-            exit_code=None,
-            duration=0.0,
-            output_snippet="",
-            error_message=f"Target script does not exist: {abs_script}",
-        )
+        return _error_result(distro=distro, message=f"Target script does not exist: {abs_script}")
 
-    if mode == ShellMode.POSIX:
-        # posix: strictly /bin/sh; do not parse shebang at all
-        command = list(DEFAULT_POSIX_COMMAND)
-    elif mode == ShellMode.SHEBANG:
-        shebang_res = parsed_shebang if parsed_shebang is not None else inspect_shebang(abs_script)
-        if shebang_res.status == ShebangStatus.MISSING:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message="No shebang found in script (required by --shell shebang)",
-            )
-        if shebang_res.status == ShebangStatus.MALFORMED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Malformed shebang in script",
-            )
-        if shebang_res.status == ShebangStatus.UNSUPPORTED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
-            )
-        cmd_key = shebang_res.command_key
-        if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
-            command = list(SUPPORTED_SHEBANG_COMMANDS[cmd_key])
-        else:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=f"Unsupported shebang command: {cmd_key}",
-            )
-    elif mode == ShellMode.AUTO:
-        shebang_res = parsed_shebang if parsed_shebang is not None else inspect_shebang(abs_script)
-        if shebang_res.status == ShebangStatus.MALFORMED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Malformed shebang in script",
-            )
-        if shebang_res.status == ShebangStatus.UNSUPPORTED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
-            )
-        if shebang_res.status == ShebangStatus.RECOGNIZED:
-            cmd_key = shebang_res.command_key
-            if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
-                command = list(SUPPORTED_SHEBANG_COMMANDS[cmd_key])
-            else:
-                return SingleResult(
-                    distro=distro,
-                    status=DistroStatus.ERROR,
-                    exit_code=None,
-                    duration=0.0,
-                    output_snippet="",
-                    error_message=f"Unsupported shebang command: {cmd_key}",
-                )
-        else:
-            # MISSING shebang -> auto falls back to /bin/sh
-            command = list(DEFAULT_POSIX_COMMAND)
+    command, cmd_error = _resolve_shell_command(mode, abs_script, parsed_shebang)
+    if cmd_error is not None:
+        return _error_result(distro=distro, message=cmd_error)
 
     # Line-ending defense & Windows-safe path preparation
     temp_file = None
     try:
         mount_src, temp_file = prepare_script(abs_script)
     except Exception as exc:
-        return SingleResult(
-            distro=distro,
-            status=DistroStatus.ERROR,
-            exit_code=None,
-            duration=0.0,
-            output_snippet="",
-            error_message=f"Failed to read/prepare script: {exc}",
-        )
+        return _error_result(distro=distro, message=f"Failed to read/prepare script: {exc}")
 
     safe_mount_src = normalize_host_path_for_docker(mount_src)
 
@@ -502,13 +456,10 @@ def run_on_distro(
 
     except Exception as exc:
         duration = time.perf_counter() - start_time
-        return SingleResult(
+        return _error_result(
             distro=distro,
-            status=DistroStatus.ERROR,
-            exit_code=None,
+            message=f"Container execution error: {exc}",
             duration=duration,
-            output_snippet="",
-            error_message=f"Container execution error: {exc}",
         )
     finally:
         # Best-effort container cleanup in finally block
