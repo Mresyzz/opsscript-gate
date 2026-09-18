@@ -681,21 +681,71 @@ def test_run_matrix_parses_shebang_once(tmp_path):
 def test_sanitize_diagnostic_text():
     # Empty string
     assert sanitize_diagnostic_text("") == ""
-    # Control characters, embedded CR/LF, ANSI escapes
+
+    # Control characters, embedded CR/LF, ANSI escape, BEL
     raw = "#!/bin/sh\r\n\x00\x1b[31mecho evil\x07"
     cleaned = sanitize_diagnostic_text(raw)
+    # ESC byte is absent
+    assert "\x1b" not in cleaned
+    # ANSI parameter residue such as "[31m" is also absent
+    assert "[31m" not in cleaned
     assert "\r" not in cleaned
     assert "\n" not in cleaned
     assert "\x00" not in cleaned
-    assert "\x1b" not in cleaned
     assert "\x07" not in cleaned
-    # Multiple whitespace collapsed
-    assert "  " not in cleaned
-    # Truncation to max_length
+    assert cleaned == "#!/bin/sh echo evil"
+
+    # Extended CSI sequence (e.g. 256-color) is removed as a complete sequence
+    extended_csi = "prefix \x1b[38;5;196mcolor\x1b[0m suffix"
+    cleaned_csi = sanitize_diagnostic_text(extended_csi)
+    assert "\x1b" not in cleaned_csi
+    assert "[38;5;196m" not in cleaned_csi
+    assert "[0m" not in cleaned_csi
+    assert cleaned_csi == "prefix color suffix"
+
+    # Additional CSI sequences (\x1b[1;31m, \x1b[?25h, etc.)
+    csi_variations = "\x1b[1;31mboldred\x1b[0m \x1b[?25hcursor"
+    cleaned_variations = sanitize_diagnostic_text(csi_variations)
+    assert "[1;31m" not in cleaned_variations
+    assert "[?25h" not in cleaned_variations
+    assert cleaned_variations == "boldred cursor"
+
+    # OSC title sequences are removed cleanly
+    osc_bel = "\x1b]0;terminal title\x07echo hello"
+    cleaned_osc_bel = sanitize_diagnostic_text(osc_bel)
+    assert "terminal title" not in cleaned_osc_bel
+    assert cleaned_osc_bel == "echo hello"
+
+    osc_st = "\x1b]0;terminal title\x1b\\echo world"
+    cleaned_osc_st = sanitize_diagnostic_text(osc_st)
+    assert "terminal title" not in cleaned_osc_st
+    assert cleaned_osc_st == "echo world"
+
+    # Ordinary printable text and Unicode are preserved
+    normal_text = "echo 'Hello world! 12345 äöü'"
+    cleaned_normal = sanitize_diagnostic_text(normal_text)
+    assert cleaned_normal == normal_text
+
+    # Repeated whitespace is collapsed
+    whitespace_text = "  a    b \t  c   \n\r  d  "
+    assert sanitize_diagnostic_text(whitespace_text) == "a b c d"
+
+    # max_length=200 returns len(result) <= 200, ends in "..."
     long_text = "#!" + "a" * 250
     truncated = sanitize_diagnostic_text(long_text, max_length=200)
-    assert len(truncated) == 203  # 200 chars + "..."
+    assert len(truncated) <= 200
+    assert len(truncated) == 200
     assert truncated.endswith("...")
+    assert truncated == "#!" + "a" * 195 + "..."
+
+    # Small/zero max_length values do not crash and remain defensively sized
+    assert sanitize_diagnostic_text("hello world", max_length=0) == ""
+    assert sanitize_diagnostic_text("hello world", max_length=-5) == ""
+    assert sanitize_diagnostic_text("hello world", max_length=1) == "h"
+    assert sanitize_diagnostic_text("hello world", max_length=2) == "he"
+    assert sanitize_diagnostic_text("hello world", max_length=3) == "..."
+    assert sanitize_diagnostic_text("hello world", max_length=4) == "h..."
+    assert len(sanitize_diagnostic_text("hello world", max_length=5)) <= 5
 
 
 def test_missing_interpreter_compatibility_failure(tmp_path):

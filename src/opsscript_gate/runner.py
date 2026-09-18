@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import time
 from typing import Sequence
@@ -35,21 +36,34 @@ SUPPORTED_SHEBANG_COMMANDS: dict[str, list[str]] = {
 
 DEFAULT_POSIX_COMMAND: list[str] = ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
 
+# Regular expression matching common ANSI escape sequences:
+# 1. CSI (Control Sequence Introducer): ESC [ ... [@-~]
+# 2. OSC (Operating System Command): ESC ] ... (BEL | ST)
+_ANSI_ESCAPE_RE = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))"
+)
+
 
 def sanitize_diagnostic_text(text: str, max_length: int = 200) -> str:
     """
     Sanitize raw shebang text for safe display in diagnostics and error messages:
+    - Strips complete ANSI escape sequences (CSI, OSC)
     - Removes control characters and embedded CR/LF
-    - Truncates to max_length characters with an ellipsis if exceeded
+    - Collapses multiple consecutive whitespace
+    - Ensures maximum final length <= max_length (including ellipsis if truncated)
     """
-    if not text:
+    if not text or max_length <= 0:
         return ""
+    # Strip complete ANSI escape sequences first
+    text = _ANSI_ESCAPE_RE.sub("", text)
     # Filter out control characters (ASCII < 32 and 127)
     sanitized = "".join(ch if (32 <= ord(ch) < 127 or ord(ch) >= 160) else " " for ch in text)
     # Collapse multiple consecutive whitespace
     sanitized = " ".join(sanitized.split())
     if len(sanitized) > max_length:
-        return sanitized[:max_length] + "..."
+        if max_length < 3:
+            return sanitized[:max_length]
+        return sanitized[: max_length - 3] + "..."
     return sanitized
 
 
