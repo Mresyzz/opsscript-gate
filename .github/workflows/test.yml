@@ -26,3 +26,27 @@ jobs:
       - name: Run Pytest
         run: |
           pytest -v -m "not integration"
+
+  integration:
+    name: Docker Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+
+      - name: Verify Docker Available
+        run: docker version
+
+      - name: Run Docker Integration Tests
+        run: |
+          pytest -v -m integration
