@@ -30,6 +30,7 @@ Add one step to your pull request workflow (`.github/workflows/gate.yml`):
   uses: Mresyzz/opsscript-gate@v0.1.2
   with:
     script-path: scripts/setup.sh
+    # shell: posix  # optional: 'posix' (default), 'shebang', or 'auto'
 ```
 
 ### In Local Terminal (CLI)
@@ -151,6 +152,7 @@ You can customize the matrix at any time via `--matrix` or Action input `matrix`
 ```text
 usage: opsscript-gate run [-h] [--matrix MATRIX] [--timeout TIMEOUT]
                           [--format {table,markdown,json}]
+                          [--shell {posix,shebang,auto}]
                           script_path
 ```
 
@@ -160,8 +162,15 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [--timeout TIMEOUT]
 | `--matrix` | String | `debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20` | Comma-separated list of Docker images |
 | `--timeout` | Integer | `60` | Hard timeout per container in seconds |
 | `--format` | Choice | `table` | Output format: `table`, `markdown`, or `json` |
+| `--shell` | Choice | `posix` | Execution mode: `posix` (default), `shebang`, or `auto` |
 | `--version` | Flag | - | Show version number |
 | `-h, --help` | Flag | - | Show argument help |
+
+### Shell Execution Modes (`--shell`)
+
+- **`posix`** (default): Strictly executes with `/bin/sh`, ignoring any script shebang. Ideal for verifying that your script runs in minimal POSIX-compliant environments (e.g. Alpine BusyBox).
+- **`shebang`**: Strictly honors the interpreter specified in the script's shebang (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/sh`, `#!/usr/bin/bash`, `#!/usr/bin/env sh`, `#!/usr/bin/env bash`). If the shebang is missing, malformed, or specifies an unsupported interpreter/flag, the check fails immediately with an error before running containers.
+- **`auto`**: Honors recognized shebangs if present; falls back to `/bin/sh` if no shebang is declared. Scripts with explicit unsupported or malformed shebangs fail immediately with an error (does not silently execute as POSIX).
 
 ### Exit Code Convention
 - **`0`**: All distributions passed (`PASS`).
@@ -202,7 +211,7 @@ pytest -v
 ## Current limitations
 
 - Requires access to a Docker daemon.
-- Scripts are currently executed with `/bin/sh`, regardless of their shebang.
+- Scripts are executed with `/bin/sh` by default; use `--shell shebang` or `--shell auto` for shebang-aware execution.
 - Distribution runs are currently sequential.
 - Containers use bridge networking by default.
 - Failure reports currently include only a tail of captured output.
@@ -213,7 +222,6 @@ pytest -v
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned capabilities, including:
-- Shebang-aware execution modes (`--shell auto|posix|shebang`)
 - Container resource limits (`--mem-limit`, `--pids-limit`)
 - Configurable network isolation (`--network none|bridge`)
 - Parallel matrix execution

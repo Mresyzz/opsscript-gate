@@ -18,7 +18,9 @@ from opsscript_gate.reporter import (
 )
 from opsscript_gate.runner import (
     DEFAULT_MATRIX,
+    DEFAULT_POSIX_COMMAND,
     DEFAULT_TIMEOUT,
+    SUPPORTED_SHEBANG_COMMANDS,
     DockerDaemonError,
     ShebangParseResult,
     ShebangStatus,
@@ -29,6 +31,7 @@ from opsscript_gate.runner import (
     prepare_script,
     run_matrix,
     run_on_distro,
+    sanitize_diagnostic_text,
 )
 
 
@@ -522,23 +525,44 @@ def test_shebang_mode_execution_mock(tmp_path):
     mock_container.logs.return_value = b"hi\n"
     mock_client.containers.create.return_value = mock_container
 
-    # 1. #!/bin/bash in shebang mode -> executes bash
+    # 1. #!/bin/bash in shebang mode -> executes /bin/bash fixed command
     s1 = tmp_path / "s1.sh"
     s1.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
     run_on_distro(mock_client, str(s1), "ubuntu:24.04", shell_mode="shebang")
-    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/bin/bash"]
 
-    # 2. #!/usr/bin/env bash in shebang mode -> executes bash
+    # 2. #!/usr/bin/bash in shebang mode -> executes /usr/bin/bash fixed command
     s2 = tmp_path / "s2.sh"
-    s2.write_text("#!/usr/bin/env bash\necho hi\n", encoding="utf-8")
+    s2.write_text("#!/usr/bin/bash\necho hi\n", encoding="utf-8")
     run_on_distro(mock_client, str(s2), "ubuntu:24.04", shell_mode="shebang")
-    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/usr/bin/bash"]
 
-    # 3. #!/usr/bin/env sh in shebang mode -> executes /bin/sh
+    # Verify that /bin/bash and /usr/bin/bash execute distinct command strings (preventing PATH-collapsing false PASS)
+    assert SUPPORTED_SHEBANG_COMMANDS["/bin/bash"] != SUPPORTED_SHEBANG_COMMANDS["/usr/bin/bash"]
+
+    # 3. #!/usr/bin/env bash in shebang mode -> executes /usr/bin/env bash
     s3 = tmp_path / "s3.sh"
-    s3.write_text("#!/usr/bin/env sh\necho hi\n", encoding="utf-8")
-    run_on_distro(mock_client, str(s3), "debian:12-slim", shell_mode="shebang")
-    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+    s3.write_text("#!/usr/bin/env bash\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s3), "ubuntu:24.04", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/usr/bin/env bash"]
+
+    # 4. #!/bin/sh in shebang mode -> executes /bin/sh
+    s4 = tmp_path / "s4.sh"
+    s4.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s4), "debian:12-slim", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/bin/sh"]
+
+    # 5. #!/usr/bin/sh in shebang mode -> executes /usr/bin/sh
+    s5 = tmp_path / "s5.sh"
+    s5.write_text("#!/usr/bin/sh\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s5), "debian:12-slim", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/usr/bin/sh"]
+
+    # 6. #!/usr/bin/env sh in shebang mode -> executes /usr/bin/env sh
+    s6 = tmp_path / "s6.sh"
+    s6.write_text("#!/usr/bin/env sh\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s6), "debian:12-slim", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/usr/bin/env sh"]
 
 
 def test_shebang_mode_errors_no_fallback(tmp_path):
@@ -577,19 +601,19 @@ def test_auto_mode_semantics(tmp_path):
     mock_container.logs.return_value = b"hi\n"
     mock_client.containers.create.return_value = mock_container
 
-    # 1. Recognized #!/bin/bash in auto mode -> uses bash
+    # 1. Recognized #!/bin/bash in auto mode -> uses /bin/bash fixed command
     s_bash = tmp_path / "auto_bash.sh"
     s_bash.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
     res = run_on_distro(mock_client, str(s_bash), "ubuntu:24.04", shell_mode="auto")
     assert res.status == DistroStatus.PASS
-    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+    assert mock_client.containers.create.call_args[1]["command"] == SUPPORTED_SHEBANG_COMMANDS["/bin/bash"]
 
     # 2. Missing shebang in auto mode -> falls back to /bin/sh
     s_no = tmp_path / "auto_no_shebang.sh"
     s_no.write_text("echo 'pure posix'\n", encoding="utf-8")
     res = run_on_distro(mock_client, str(s_no), "ubuntu:24.04", shell_mode="auto")
     assert res.status == DistroStatus.PASS
-    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+    assert mock_client.containers.create.call_args[1]["command"] == DEFAULT_POSIX_COMMAND
 
     # 3. Unsupported shebang in auto mode -> MUST ERROR, NOT fall back
     mock_client.containers.create.reset_mock()
@@ -609,6 +633,71 @@ def test_auto_mode_semantics(tmp_path):
     mock_client.containers.create.assert_not_called()
 
 
+def test_posix_mode_bypasses_shebang_inspection(tmp_path):
+    # In posix mode, do not parse shebang at all
+    script = tmp_path / "any_script.sh"
+    script.write_text("gibberish\n", encoding="utf-8")
+
+    with mock.patch("opsscript_gate.runner.inspect_shebang") as mock_inspect:
+        mock_client = mock.MagicMock()
+        mock_container = mock.MagicMock()
+        mock_container.status = "exited"
+        mock_container.attrs = {"State": {"ExitCode": 0}}
+        mock_container.logs.return_value = b""
+        mock_client.containers.create.return_value = mock_container
+
+        # 1. run_on_distro in posix mode
+        run_on_distro(mock_client, str(script), "debian:12-slim", shell_mode="posix")
+        mock_inspect.assert_not_called()
+
+        # 2. run_matrix in posix mode
+        run_matrix(str(script), matrix=["debian:12-slim", "alpine:3.20"], shell_mode="posix", client=mock_client)
+        mock_inspect.assert_not_called()
+
+
+def test_run_matrix_parses_shebang_once(tmp_path):
+    # In run_matrix, avoid re-reading the script file on every distro for non-posix modes
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b""
+    mock_client.containers.create.return_value = mock_container
+
+    with mock.patch("opsscript_gate.runner.inspect_shebang", wraps=inspect_shebang) as spy_inspect:
+        report = run_matrix(
+            str(script),
+            matrix=["debian:12-slim", "ubuntu:22.04", "alpine:3.20"],
+            shell_mode="shebang",
+            client=mock_client,
+        )
+        assert report.all_passed is True
+        assert spy_inspect.call_count == 1
+
+
+def test_sanitize_diagnostic_text():
+    # Empty string
+    assert sanitize_diagnostic_text("") == ""
+    # Control characters, embedded CR/LF, ANSI escapes
+    raw = "#!/bin/sh\r\n\x00\x1b[31mecho evil\x07"
+    cleaned = sanitize_diagnostic_text(raw)
+    assert "\r" not in cleaned
+    assert "\n" not in cleaned
+    assert "\x00" not in cleaned
+    assert "\x1b" not in cleaned
+    assert "\x07" not in cleaned
+    # Multiple whitespace collapsed
+    assert "  " not in cleaned
+    # Truncation to max_length
+    long_text = "#!" + "a" * 250
+    truncated = sanitize_diagnostic_text(long_text, max_length=200)
+    assert len(truncated) == 203  # 200 chars + "..."
+    assert truncated.endswith("...")
+
+
 def test_missing_interpreter_compatibility_failure(tmp_path):
     # Test that a missing interpreter inside container produces a clear FAIL (e.g. exit 127)
     script_file = tmp_path / "needs_bash.sh"
@@ -618,13 +707,13 @@ def test_missing_interpreter_compatibility_failure(tmp_path):
     mock_container = mock.MagicMock()
     mock_container.status = "exited"
     mock_container.attrs = {"State": {"ExitCode": 127}}
-    mock_container.logs.return_value = b"/bin/sh: bash: not found\n"
+    mock_container.logs.return_value = b"/bin/sh: /bin/bash: not found\n"
     mock_client.containers.create.return_value = mock_container
 
     result = run_on_distro(mock_client, str(script_file), "alpine:3.20", shell_mode="shebang")
     assert result.status == DistroStatus.FAIL
     assert result.exit_code == 127
-    assert "bash: not found" in result.output_snippet
+    assert "not found" in result.output_snippet
 
 
 def test_arbitrary_shebang_never_reaches_docker_command(tmp_path):
@@ -730,3 +819,17 @@ def test_integration_fail_deps_alpine():
     assert report.all_passed is False
     assert report.results[0].status == DistroStatus.FAIL
     assert report.results[0].exit_code == 127
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
+def test_integration_missing_bash_alpine(tmp_path):
+    # Verifies that a script with #!/bin/bash in shebang mode fails against alpine:3.20 because bash is missing
+    bash_script = tmp_path / "script_bash.sh"
+    bash_script.write_text("#!/bin/bash\necho 'running on bash'\nexit 0\n", encoding="utf-8")
+    report = run_matrix(str(bash_script), matrix=["alpine:3.20"], timeout=30, shell_mode="shebang")
+    assert report.all_passed is False
+    assert len(report.results) == 1
+    assert report.results[0].status == DistroStatus.FAIL
+    assert report.results[0].exit_code == 127
+    assert "not found" in (report.results[0].output_snippet or "").lower()
