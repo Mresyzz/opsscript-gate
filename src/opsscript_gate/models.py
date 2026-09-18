@@ -13,6 +13,13 @@ class DistroStatus(str, Enum):
     ERROR = "ERROR"
 
 
+class ShellMode(str, Enum):
+    """Execution mode for shell scripts."""
+    POSIX = "posix"
+    SHEBANG = "shebang"
+    AUTO = "auto"
+
+
 @dataclass
 class SingleResult:
     """Execution result for a single Linux distribution."""

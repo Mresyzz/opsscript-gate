@@ -9,7 +9,7 @@ import pytest
 from docker.errors import DockerException
 
 from opsscript_gate.cli import build_parser, main, parse_matrix_argument
-from opsscript_gate.models import DistroStatus, RunReport, SingleResult
+from opsscript_gate.models import DistroStatus, RunReport, ShellMode, SingleResult
 from opsscript_gate.reporter import (
     format_github_summary,
     format_json,
@@ -20,8 +20,11 @@ from opsscript_gate.runner import (
     DEFAULT_MATRIX,
     DEFAULT_TIMEOUT,
     DockerDaemonError,
+    ShebangParseResult,
+    ShebangStatus,
     extract_snippet,
     get_docker_client,
+    inspect_shebang,
     normalize_host_path_for_docker,
     prepare_script,
     run_matrix,
@@ -237,7 +240,7 @@ def test_run_matrix_aggregation(tmp_path):
     mock_client.containers.create.return_value = mock_container
 
     matrix = ["debian:12-slim", "ubuntu:22.04"]
-    report = run_matrix(str(script_file), matrix=matrix, timeout=5, client=mock_client)
+    report = run_matrix(str(script_file), matrix=matrix, timeout=5, shell_mode="shebang", client=mock_client)
 
     assert report.all_passed is True
     assert len(report.results) == 2
@@ -424,7 +427,280 @@ def test_fixtures_posix_shebang_compliance():
 
 
 # ==============================================================================
-# 5. Integration Tests (Requires Running Docker Daemon)
+# 5. Shell Mode & Shebang Parsing Tests
+# ==============================================================================
+
+def test_inspect_shebang_matrix(tmp_path):
+    # 1. Standard supported shebangs
+    cases = [
+        ("#!/bin/sh\nexit 0\n", ShebangStatus.RECOGNIZED, "sh"),
+        ("#!/usr/bin/sh\nexit 0\n", ShebangStatus.RECOGNIZED, "sh"),
+        ("#!/bin/bash\nexit 0\n", ShebangStatus.RECOGNIZED, "bash"),
+        ("#!/usr/bin/bash\nexit 0\n", ShebangStatus.RECOGNIZED, "bash"),
+        ("#!/usr/bin/env sh\nexit 0\n", ShebangStatus.RECOGNIZED, "sh"),
+        ("#!/usr/bin/env bash\nexit 0\n", ShebangStatus.RECOGNIZED, "bash"),
+        ("env sh\nexit 0\n", ShebangStatus.MISSING, None),
+    ]
+    for idx, (content, expected_status, expected_interp) in enumerate(cases):
+        f = tmp_path / f"script_case_{idx}.sh"
+        f.write_text(content, encoding="utf-8")
+        res = inspect_shebang(str(f))
+        assert res.status == expected_status
+        assert res.interpreter == expected_interp
+
+    # 2. CRLF shebang
+    crlf_file = tmp_path / "crlf_shebang.sh"
+    crlf_file.write_bytes(b"#!/usr/bin/env bash\r\necho hi\r\n")
+    res_crlf = inspect_shebang(str(crlf_file))
+    assert res_crlf.status == ShebangStatus.RECOGNIZED
+    assert res_crlf.interpreter == "bash"
+
+    # 3. Leading whitespace before #! must be treated as missing
+    lead_space = tmp_path / "lead_space.sh"
+    lead_space.write_text(" #!/bin/sh\necho hi\n", encoding="utf-8")
+    assert inspect_shebang(str(lead_space)).status == ShebangStatus.MISSING
+
+    lead_tab = tmp_path / "lead_tab.sh"
+    lead_tab.write_text("\t#!/bin/bash\necho hi\n", encoding="utf-8")
+    assert inspect_shebang(str(lead_tab)).status == ShebangStatus.MISSING
+
+    # 4. Missing shebang
+    no_shebang = tmp_path / "no_shebang.sh"
+    no_shebang.write_text("echo 'hello world'\nexit 0\n", encoding="utf-8")
+    assert inspect_shebang(str(no_shebang)).status == ShebangStatus.MISSING
+
+    # 5. Malformed shebangs
+    malformed1 = tmp_path / "malformed1.sh"
+    malformed1.write_text("#!\n", encoding="utf-8")
+    assert inspect_shebang(str(malformed1)).status == ShebangStatus.MALFORMED
+
+    malformed2 = tmp_path / "malformed2.sh"
+    malformed2.write_text("#!/usr/bin/env\n", encoding="utf-8")
+    assert inspect_shebang(str(malformed2)).status == ShebangStatus.MALFORMED
+
+    # 6. Unsupported shebangs (including flags and complex env forms)
+    unsupported_cases = [
+        "#!/usr/bin/python3\nprint('hi')\n",
+        "#!/bin/zsh\nexit 0\n",
+        "#!/bin/bash -e\nexit 0\n",
+        "#!/usr/bin/env -S bash\nexit 0\n",
+        "#!/bin/sh; rm -rf /\n",
+    ]
+    for idx, content in enumerate(unsupported_cases):
+        f = tmp_path / f"unsupported_{idx}.sh"
+        f.write_text(content, encoding="utf-8")
+        assert inspect_shebang(str(f)).status == ShebangStatus.UNSUPPORTED
+
+
+def test_default_and_posix_shell_mode_mock(tmp_path):
+    script_file = tmp_path / "bash_script.sh"
+    script_file.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b"hi\n"
+    mock_client.containers.create.return_value = mock_container
+
+    # 1. Default mode (without specifying shell_mode) -> defaults to posix (/bin/sh)
+    run_on_distro(mock_client, str(script_file), "debian:12-slim")
+    cmd = mock_client.containers.create.call_args[1]["command"]
+    assert cmd == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+    # 2. Explicit posix mode -> strictly /bin/sh regardless of #!/bin/bash
+    run_on_distro(mock_client, str(script_file), "debian:12-slim", shell_mode="posix")
+    cmd = mock_client.containers.create.call_args[1]["command"]
+    assert cmd == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+
+def test_shebang_mode_execution_mock(tmp_path):
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b"hi\n"
+    mock_client.containers.create.return_value = mock_container
+
+    # 1. #!/bin/bash in shebang mode -> executes bash
+    s1 = tmp_path / "s1.sh"
+    s1.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s1), "ubuntu:24.04", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+
+    # 2. #!/usr/bin/env bash in shebang mode -> executes bash
+    s2 = tmp_path / "s2.sh"
+    s2.write_text("#!/usr/bin/env bash\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s2), "ubuntu:24.04", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+
+    # 3. #!/usr/bin/env sh in shebang mode -> executes /bin/sh
+    s3 = tmp_path / "s3.sh"
+    s3.write_text("#!/usr/bin/env sh\necho hi\n", encoding="utf-8")
+    run_on_distro(mock_client, str(s3), "debian:12-slim", shell_mode="shebang")
+    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+
+def test_shebang_mode_errors_no_fallback(tmp_path):
+    mock_client = mock.MagicMock()
+
+    # 1. Missing shebang -> ERROR, no container created
+    s_missing = tmp_path / "missing.sh"
+    s_missing.write_text("echo hi\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_missing), "ubuntu:24.04", shell_mode="shebang")
+    assert res.status == DistroStatus.ERROR
+    assert "No shebang found" in (res.error_message or "")
+    mock_client.containers.create.assert_not_called()
+
+    # 2. Unsupported shebang -> ERROR, no container created
+    s_py = tmp_path / "py.sh"
+    s_py.write_text("#!/usr/bin/python3\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_py), "ubuntu:24.04", shell_mode="shebang")
+    assert res.status == DistroStatus.ERROR
+    assert "Unsupported shebang interpreter" in (res.error_message or "")
+    mock_client.containers.create.assert_not_called()
+
+    # 3. Malformed shebang -> ERROR, no container created
+    s_mal = tmp_path / "mal.sh"
+    s_mal.write_text("#!\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_mal), "ubuntu:24.04", shell_mode="shebang")
+    assert res.status == DistroStatus.ERROR
+    assert "Malformed shebang" in (res.error_message or "")
+    mock_client.containers.create.assert_not_called()
+
+
+def test_auto_mode_semantics(tmp_path):
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b"hi\n"
+    mock_client.containers.create.return_value = mock_container
+
+    # 1. Recognized #!/bin/bash in auto mode -> uses bash
+    s_bash = tmp_path / "auto_bash.sh"
+    s_bash.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_bash), "ubuntu:24.04", shell_mode="auto")
+    assert res.status == DistroStatus.PASS
+    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "bash /tmp/target_script.sh </dev/null"]
+
+    # 2. Missing shebang in auto mode -> falls back to /bin/sh
+    s_no = tmp_path / "auto_no_shebang.sh"
+    s_no.write_text("echo 'pure posix'\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_no), "ubuntu:24.04", shell_mode="auto")
+    assert res.status == DistroStatus.PASS
+    assert mock_client.containers.create.call_args[1]["command"] == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+    # 3. Unsupported shebang in auto mode -> MUST ERROR, NOT fall back
+    mock_client.containers.create.reset_mock()
+    s_unsupported = tmp_path / "auto_unsupported.sh"
+    s_unsupported.write_text("#!/usr/bin/python3\nprint('hi')\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_unsupported), "ubuntu:24.04", shell_mode="auto")
+    assert res.status == DistroStatus.ERROR
+    assert "Unsupported shebang interpreter" in (res.error_message or "")
+    mock_client.containers.create.assert_not_called()
+
+    # 4. Malformed shebang in auto mode -> MUST ERROR, NOT fall back
+    s_malformed = tmp_path / "auto_malformed.sh"
+    s_malformed.write_text("#!\n", encoding="utf-8")
+    res = run_on_distro(mock_client, str(s_malformed), "ubuntu:24.04", shell_mode="auto")
+    assert res.status == DistroStatus.ERROR
+    assert "Malformed shebang" in (res.error_message or "")
+    mock_client.containers.create.assert_not_called()
+
+
+def test_missing_interpreter_compatibility_failure(tmp_path):
+    # Test that a missing interpreter inside container produces a clear FAIL (e.g. exit 127)
+    script_file = tmp_path / "needs_bash.sh"
+    script_file.write_text("#!/bin/bash\necho hi\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 127}}
+    mock_container.logs.return_value = b"/bin/sh: bash: not found\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(mock_client, str(script_file), "alpine:3.20", shell_mode="shebang")
+    assert result.status == DistroStatus.FAIL
+    assert result.exit_code == 127
+    assert "bash: not found" in result.output_snippet
+
+
+def test_arbitrary_shebang_never_reaches_docker_command(tmp_path):
+    # Malicious or arbitrary shebang string should never be interpolated into container command
+    danger_file = tmp_path / "injection_attempt.sh"
+    danger_file.write_text("#!/bin/sh; rm -rf /\necho pwn\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+
+    # In shebang mode -> rejected as unsupported
+    res1 = run_on_distro(mock_client, str(danger_file), "ubuntu:24.04", shell_mode="shebang")
+    assert res1.status == DistroStatus.ERROR
+    mock_client.containers.create.assert_not_called()
+
+    # In auto mode -> rejected as unsupported (not executed)
+    res2 = run_on_distro(mock_client, str(danger_file), "ubuntu:24.04", shell_mode="auto")
+    assert res2.status == DistroStatus.ERROR
+    mock_client.containers.create.assert_not_called()
+
+    # In posix mode -> only constant command executed
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b""
+    mock_client.containers.create.return_value = mock_container
+
+    run_on_distro(mock_client, str(danger_file), "ubuntu:24.04", shell_mode="posix")
+    cmd = mock_client.containers.create.call_args[1]["command"]
+    assert cmd == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+    assert "; rm -rf /" not in " ".join(cmd)
+
+
+def test_action_yml_input_hardening():
+    # Verify that action.yml passes all inputs via env and does not interpolate directly into bash
+    action_path = os.path.join(os.path.dirname(__file__), "..", "action.yml")
+    assert os.path.exists(action_path)
+    with open(action_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Confirm shell input is declared
+    assert "shell:" in content
+
+    # Find the run block of 'Run compatibility gate'
+    assert "INPUT_SHELL: ${{ inputs.shell }}" in content
+    assert "INPUT_SCRIPT_PATH: ${{ inputs.script-path }}" in content
+    assert "INPUT_MATRIX: ${{ inputs.matrix }}" in content
+    assert "INPUT_TIMEOUT: ${{ inputs.timeout }}" in content
+    assert "INPUT_FORMAT: ${{ inputs.format }}" in content
+
+    # Extract the run block of 'Run compatibility gate' and assert ${{ inputs. is NOT present
+    gate_step = content.split("- name: Run compatibility gate")[1]
+    run_block = gate_step.split("run: |")[1]
+    assert "${{ inputs." not in run_block
+
+
+def test_cli_shell_mode_arguments(tmp_path):
+    parser = build_parser()
+    # Test valid choices
+    args_posix = parser.parse_args(["run", "test.sh", "--shell", "posix"])
+    assert args_posix.shell == "posix"
+    args_shebang = parser.parse_args(["run", "test.sh", "--shell", "shebang"])
+    assert args_shebang.shell == "shebang"
+    args_auto = parser.parse_args(["run", "test.sh", "--shell", "auto"])
+    assert args_auto.shell == "auto"
+
+    # Test default
+    args_default = parser.parse_args(["run", "test.sh"])
+    assert args_default.shell == "posix"
+
+    # Test invalid choice raises SystemExit
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run", "test.sh", "--shell", "invalid_shell"])
+
+
+# ==============================================================================
+# 6. Integration Tests (Requires Running Docker Daemon)
 # ==============================================================================
 
 def is_docker_daemon_available() -> bool:

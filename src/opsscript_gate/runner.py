@@ -8,7 +8,9 @@ from typing import Sequence
 import docker
 from docker.errors import DockerException, ImageNotFound
 
-from opsscript_gate.models import DistroStatus, RunReport, SingleResult
+from dataclasses import dataclass
+from enum import Enum
+from opsscript_gate.models import DistroStatus, RunReport, ShellMode, SingleResult
 
 DEFAULT_MATRIX: list[str] = [
     "debian:12-slim",
@@ -19,6 +21,140 @@ DEFAULT_MATRIX: list[str] = [
 
 DEFAULT_TIMEOUT: int = 60
 SNIPPET_LINE_LIMIT: int = 15
+
+
+class ShebangStatus(str, Enum):
+    """Status of shebang parsing."""
+    RECOGNIZED = "recognized"
+    MISSING = "missing"
+    MALFORMED = "malformed"
+    UNSUPPORTED = "unsupported"
+
+
+@dataclass
+class ShebangParseResult:
+    """Structured parse result for script shebang."""
+    status: ShebangStatus
+    interpreter: str | None = None  # "sh" | "bash" | None
+    raw_shebang: str | None = None
+    error_message: str | None = None
+
+
+def inspect_shebang(script_path: str) -> ShebangParseResult:
+    """
+    Inspect the first line of a script to parse its shebang.
+    Strict parsing rules:
+      - Must begin with '#!' at index 0 (no leading whitespace allowed).
+      - CRLF is normalized.
+      - Supported interpreters: #!/bin/sh, #!/bin/bash, #!/usr/bin/sh,
+        #!/usr/bin/bash, #!/usr/bin/env sh, #!/usr/bin/env bash.
+      - Any shebang with additional arguments or complex env flags is rejected.
+    """
+    try:
+        with open(script_path, "rb") as f:
+            first_line_bytes = f.readline()
+    except Exception as exc:
+        return ShebangParseResult(
+            status=ShebangStatus.MALFORMED,
+            error_message=f"Failed to read script to parse shebang: {exc}",
+        )
+
+    # Normalize carriage returns and decode without lstripping leading characters
+    raw_line = first_line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
+
+    # A valid shebang must begin at the very start of the first line
+    if not raw_line.startswith("#!"):
+        return ShebangParseResult(
+            status=ShebangStatus.MISSING,
+            error_message="No shebang found in script (required by --shell shebang)",
+        )
+
+    raw_shebang = raw_line
+    shebang_body = raw_line[2:].strip()
+    if not shebang_body:
+        return ShebangParseResult(
+            status=ShebangStatus.MALFORMED,
+            raw_shebang=raw_shebang,
+            error_message=f"Malformed shebang in script: '{raw_shebang}'",
+        )
+
+    tokens = shebang_body.split()
+    if not tokens:
+        return ShebangParseResult(
+            status=ShebangStatus.MALFORMED,
+            raw_shebang=raw_shebang,
+            error_message=f"Malformed shebang in script: '{raw_shebang}'",
+        )
+
+    cmd = tokens[0]
+
+    # Handle /usr/bin/env, env, /bin/env
+    if cmd in ("/usr/bin/env", "env", "/bin/env"):
+        if len(tokens) == 1:
+            return ShebangParseResult(
+                status=ShebangStatus.MALFORMED,
+                raw_shebang=raw_shebang,
+                error_message=f"Malformed shebang in script: '{raw_shebang}' (missing interpreter)",
+            )
+        elif len(tokens) == 2:
+            sub_cmd = tokens[1]
+            if sub_cmd == "sh":
+                return ShebangParseResult(
+                    status=ShebangStatus.RECOGNIZED,
+                    interpreter="sh",
+                    raw_shebang=raw_shebang,
+                )
+            elif sub_cmd == "bash":
+                return ShebangParseResult(
+                    status=ShebangStatus.RECOGNIZED,
+                    interpreter="bash",
+                    raw_shebang=raw_shebang,
+                )
+            else:
+                return ShebangParseResult(
+                    status=ShebangStatus.UNSUPPORTED,
+                    raw_shebang=raw_shebang,
+                    error_message=f"Unsupported shebang interpreter: '{raw_shebang}' (supported: sh, bash)",
+                )
+        else:
+            # Reject complex env forms (e.g. env -S bash) or additional arguments
+            return ShebangParseResult(
+                status=ShebangStatus.UNSUPPORTED,
+                raw_shebang=raw_shebang,
+                error_message=f"Unsupported complex env shebang form: '{raw_shebang}'",
+            )
+
+    # Direct interpreters (e.g. /bin/sh, /bin/bash, /usr/bin/sh, /usr/bin/bash)
+    if cmd in ("/bin/sh", "/usr/bin/sh"):
+        if len(tokens) > 1:
+            return ShebangParseResult(
+                status=ShebangStatus.UNSUPPORTED,
+                raw_shebang=raw_shebang,
+                error_message=f"Unsupported shebang arguments in '{raw_shebang}'",
+            )
+        return ShebangParseResult(
+            status=ShebangStatus.RECOGNIZED,
+            interpreter="sh",
+            raw_shebang=raw_shebang,
+        )
+    elif cmd in ("/bin/bash", "/usr/bin/bash"):
+        if len(tokens) > 1:
+            return ShebangParseResult(
+                status=ShebangStatus.UNSUPPORTED,
+                raw_shebang=raw_shebang,
+                error_message=f"Unsupported shebang arguments in '{raw_shebang}'",
+            )
+        return ShebangParseResult(
+            status=ShebangStatus.RECOGNIZED,
+            interpreter="bash",
+            raw_shebang=raw_shebang,
+        )
+    else:
+        return ShebangParseResult(
+            status=ShebangStatus.UNSUPPORTED,
+            raw_shebang=raw_shebang,
+            error_message=f"Unsupported shebang interpreter: '{raw_shebang}' (supported: sh, bash)",
+        )
 
 
 class DockerDaemonError(RuntimeError):
@@ -87,11 +223,24 @@ def run_on_distro(
     distro: str,
     timeout: int = DEFAULT_TIMEOUT,
     poll_interval: float = 0.1,
+    shell_mode: ShellMode | str = ShellMode.POSIX,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
-    Strictly uses /bin/sh for 100% compatibility with Alpine, Debian, and Ubuntu.
+    Supports posix, shebang, and auto execution modes.
     """
+    try:
+        mode = ShellMode(shell_mode)
+    except ValueError:
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message=f"Invalid shell mode: '{shell_mode}'. Choose from: posix, shebang, auto.",
+        )
+
     abs_script = os.path.abspath(script_path)
     if not os.path.isfile(abs_script):
         return SingleResult(
@@ -102,6 +251,71 @@ def run_on_distro(
             output_snippet="",
             error_message=f"Target script does not exist: {abs_script}",
         )
+
+    # Inspect shebang
+    shebang_res = inspect_shebang(abs_script)
+
+    if mode == ShellMode.POSIX:
+        # posix: always /bin/sh, ignoring script shebang
+        exec_cmd = "/bin/sh /tmp/target_script.sh </dev/null"
+    elif mode == ShellMode.SHEBANG:
+        # shebang: must have recognized shebang, error on missing/malformed/unsupported
+        if shebang_res.status == ShebangStatus.MISSING:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message="No shebang found in script (required by --shell shebang)",
+            )
+        if shebang_res.status == ShebangStatus.MALFORMED:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=shebang_res.error_message or "Malformed shebang in script",
+            )
+        if shebang_res.status == ShebangStatus.UNSUPPORTED:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
+            )
+        if shebang_res.interpreter == "bash":
+            exec_cmd = "bash /tmp/target_script.sh </dev/null"
+        else:
+            exec_cmd = "/bin/sh /tmp/target_script.sh </dev/null"
+    elif mode == ShellMode.AUTO:
+        # auto: recognized -> use it; missing -> fall back to /bin/sh; malformed/unsupported -> ERROR
+        if shebang_res.status == ShebangStatus.MALFORMED:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=shebang_res.error_message or "Malformed shebang in script",
+            )
+        if shebang_res.status == ShebangStatus.UNSUPPORTED:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
+            )
+        if shebang_res.status == ShebangStatus.RECOGNIZED and shebang_res.interpreter == "bash":
+            exec_cmd = "bash /tmp/target_script.sh </dev/null"
+        else:
+            # MISSING shebang or recognized "sh": execute with /bin/sh
+            exec_cmd = "/bin/sh /tmp/target_script.sh </dev/null"
 
     # Line-ending defense & Windows-safe path preparation
     temp_file = None
@@ -130,9 +344,8 @@ def run_on_distro(
         "DEBIAN_FRONTEND": "noninteractive",
         "CI": "true",
     }
-    # Red-line rule: strictly /bin/sh (never hardcode /bin/bash for Alpine compatibility)
     # Redirect stdin from /dev/null to defend against interactive hangs
-    command = ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+    command = ["/bin/sh", "-c", exec_cmd]
 
     container = None
     start_time = time.perf_counter()
@@ -245,7 +458,7 @@ def run_on_distro(
             error_message=f"Container execution error: {exc}",
         )
     finally:
-        # Zero-zombie guarantee: always remove container
+        # Best-effort container cleanup in finally block
         if container is not None:
             try:
                 container.remove(force=True)
@@ -264,6 +477,7 @@ def run_matrix(
     script_path: str,
     matrix: Sequence[str] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
+    shell_mode: ShellMode | str = ShellMode.POSIX,
     client: docker.DockerClient | None = None,
 ) -> RunReport:
     """Run the compatibility check across all specified Linux distributions."""
@@ -279,6 +493,7 @@ def run_matrix(
             script_path=script_path,
             distro=distro,
             timeout=timeout,
+            shell_mode=shell_mode,
         )
         results.append(res)
 
