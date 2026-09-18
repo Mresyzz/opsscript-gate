@@ -64,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="table",
         help="Output report format: 'table' (default ASCII), 'markdown', or 'json'",
     )
+    run_parser.add_argument(
+        "--shell",
+        choices=["posix", "shebang", "auto"],
+        default="posix",
+        help="Shell execution mode: 'posix' (default, /bin/sh), 'shebang' (honors script shebang), or 'auto' (shebang if recognized, else /bin/sh)",
+    )
 
     return parser
 
@@ -98,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
                 script_path=script_path,
                 matrix=matrix,
                 timeout=args.timeout,
+                shell_mode=args.shell,
             )
         except DockerDaemonError as err:
             sys.stderr.write(f"Docker Error: {err}\n")

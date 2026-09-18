@@ -21,6 +21,10 @@ inputs:
     description: 'Output report format: table, markdown, or json'
     required: false
     default: 'table'
+  shell:
+    description: "Shell execution mode: 'posix' (default), 'shebang', or 'auto'"
+    required: false
+    default: 'posix'
 
 runs:
   using: 'composite'
@@ -38,9 +42,21 @@ runs:
 
     - name: Run compatibility gate
       shell: bash
+      env:
+        INPUT_SCRIPT_PATH: ${{ inputs.script-path }}
+        INPUT_MATRIX: ${{ inputs.matrix }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_SHELL: ${{ inputs.shell }}
       run: |
-        ARGS=("run" "${{ inputs.script-path }}" "--timeout" "${{ inputs.timeout }}" "--format" "${{ inputs.format }}")
-        if [ -n "${{ inputs.matrix }}" ]; then
-          ARGS+=("--matrix" "${{ inputs.matrix }}")
+        ARGS=(
+          "run"
+          "$INPUT_SCRIPT_PATH"
+          "--timeout" "$INPUT_TIMEOUT"
+          "--format" "$INPUT_FORMAT"
+          "--shell" "$INPUT_SHELL"
+        )
+        if [ -n "$INPUT_MATRIX" ]; then
+          ARGS+=("--matrix" "$INPUT_MATRIX")
         fi
         python -m opsscript_gate.cli "${ARGS[@]}"
