@@ -1,41 +1,85 @@
-# OpsScript Gate (`opsscript-gate`)
+# opsscript-gate
 
-面向 Linux 运维 Shell 脚本的轻量级、无特权容器跨发行版兼容性预演门禁与 GitHub Action。
+> Linux 运维脚本跨发行版（Debian / Ubuntu / Alpine）兼容性预演门禁与 GitHub Action。
 
----
+在 Shell 脚本合并到主分支或发版前，使用轻量、无特权的瞬态容器自动进行预演，拦截命令缺失（如 Alpine 缺失 apt/bash）、未捕获退出码、交互挂死以及换行符问题。
 
-## 📖 项目背景
-
-在日常云原生与 Linux 运维场景中，Shell 脚本常常承担环境初始化、依赖配置、服务自愈和发布部署等关键任务。然而，运维脚本在发版前往往面临跨发行版兼容性隐患：
-- **软件包管理器与核心命令缺失**：Debian/Ubuntu 依赖 `apt-get`、`systemctl`，而在轻量级 Alpine 中只有 `apk`，且默认采用 BusyBox 精简命令集，常因缺失工具导致 `command not found (exit 127)`。
-- **未捕获的静默错误**：脚本缺少 `set -e` 或管道错误处理，在部分发行版中执行异常却静默退出。
-- **交互等待导致 CI 永久挂死**：脚本意外调用 `read`、交互式包安装提示，导致持续等待标准输入而阻塞流水线。
-
-`opsscript-gate` 旨在作为发布前的一道轻量门禁，通过无特权瞬态容器并行/串行预演运行，即时捕获跨系统异常并输出整洁的汇总报表。
+[GitHub 仓库](https://github.com/Mresyzz/opsscript-gate) · [版本发布](https://github.com/Mresyzz/opsscript-gate/releases)
 
 ---
 
-## 🛡️ 核心安全边界与隔离红线（Strict Security Boundary）
+## 解决的问题
 
-1. **绝对无特权容器（Unprivileged Containers）**：
-   - 严禁启用特权模式（`--privileged`）。
-   - 严禁授予特权 Capabilities（如 `CAP_SYS_ADMIN` 等）。
-   - 待测宿主机脚本显式以只读卷挂载（`:ro`），严禁挂载宿主机敏感路径（如 Docker Socket、`/etc` 等）。
-2. **强制硬超时强杀（Hard Timeout Interruption）**：
-   - 单个镜像预演默认设置 60 秒硬超时（可通过参数自定义）。
-   - 超时后立即对容器发出 `SIGKILL` 强杀信号（`container.kill()`），防止任何后台死锁进程残留，并标记状态为 `TIMED_OUT`。
-3. **彻底防范交互挂死（Non-interactive Anti-hang）**：
-   - 容器禁用 TTY 与标准输入（`stdin_open=False`, `tty=False`）。
-   - 容器内执行脚本时强制定向至 `/dev/null`（`</dev/null`）。
-   - 强制注入非交互环境变量：`DEBIAN_FRONTEND=noninteractive`、`CI=true`。
-4. **零僵尸容器保障（Zero Zombie Containers）**：
-   - 无论脚本成功、失败、超时被杀或发生运行时异常，`finally` 块均强制执行 `container.remove(force=True)` 进行彻底清理。
-5. **克制的功能边界**：
-   - 本工具专注于验证脚本在基础 Linux 系统环境下的可执行性、命令可用性及返回码，不模拟 systemd、复杂 cgroups 或网络防火墙等重型系统环境。
+运维 Shell 脚本在跨系统分发时经常遇到以下问题：
+
+- **系统依赖与命令缺失**：在 Ubuntu 上写好的脚本直接包含 `apt-get`、`systemctl` 或 bash 专属语法，分发到 Alpine（默认 BusyBox sh，包管理器为 apk）后因命令不存在报 127 退出。
+- **CI 流水线交互挂死**：脚本意外调用 `read -p` 或安装程序弹出交互确认，CI 没有标准输入一直挂起直至超时被杀。
+- **CRLF 换行符假性报错**：在 Windows 环境检出或修改的脚本带有 `\r\n`，在 Linux 容器中执行报错 `\r: command not found`。
+- **静默失败被漏过**：脚本未配置严格错误捕获，某些子步骤失败却因最后一条命令成功而返回 0，导致带病上线。
+
+`opsscript-gate` 在完全隔离的轻量容器中预跑脚本，捕获返回码与最后 15 行错误日志，拦截不兼容变更。
 
 ---
 
-## 🗂️ 默认测试矩阵（Default Matrix）
+## 运行效果
+
+### 控制台输出 (ASCII Table)
+
+```text
++--------------------+----------+-----------+------------+----------------------------------------------------+
+| Distro             | Status   | Exit Code | Duration   | Details                                            |
++--------------------+----------+-----------+------------+----------------------------------------------------+
+| debian:12-slim     | PASS     | 0         | 1.12s      | OK                                                 |
+| ubuntu:22.04       | PASS     | 0         | 1.05s      | OK                                                 |
+| ubuntu:24.04       | PASS     | 0         | 1.08s      | OK                                                 |
+| alpine:3.20        | FAIL     | 127       | 0.42s      | Script failed with non-zero exit code: 127         |
++--------------------+----------+-----------+------------+----------------------------------------------------+
+Total duration: 3.67s | Result: FAILED
+
+============================================================
+Failed Distributions - Output Snippets (last 15 lines):
+============================================================
+
+--- [alpine:3.20] (FAIL) ---
+/tmp/target_script.sh: line 5: apt-get: not found
+```
+
+### GitHub Actions 摘要 (Step Summary)
+
+如果检测到环境变量 `$GITHUB_STEP_SUMMARY`，会自动将 Markdown 格式结果与失败折叠日志直接注入到 Action 执行页：
+
+| Distro | Status | Exit Code | Duration | Message |
+| :--- | :---: | :---: | :---: | :--- |
+| `debian:12-slim` | ✅ PASS | `0` | `1.12s` | - |
+| `ubuntu:22.04` | ✅ PASS | `0` | `1.05s` | - |
+| `ubuntu:24.04` | ✅ PASS | `0` | `1.08s` | - |
+| `alpine:3.20` | ❌ FAIL | `127` | `0.42s` | Script failed with non-zero exit code: 127 |
+
+---
+
+## 隔离与安全设计
+
+1. **绝对无特权容器**：
+   - 严禁 `--privileged`，剥离所有 Linux Capability（`cap_drop=["ALL"]`）。
+   - 禁止挂载宿主机敏感目录（如 `/var/run/docker.sock`）。
+2. **只读挂载**：
+   - 宿主机待测脚本以只读模式挂载至容器内（`{"bind": "/tmp/target_script.sh", "mode": "ro"}`）。
+3. **彻底防挂死**：
+   - 显式关闭标准输入与 TTY（`stdin_open=False`, `tty=False`）。
+   - 执行命令强制重定向：`/bin/sh -c "/bin/sh /tmp/target_script.sh </dev/null"`。
+   - 注入非交互环境变量：`DEBIAN_FRONTEND=noninteractive`、`CI=true`。
+4. **硬超时中断**：
+   - 默认每个发行版 60 秒硬超时，超时后显式调用 `container.kill()`，标记状态为 `TIMED_OUT`。
+5. **资源回收保底**：
+   - 无论脚本成功、失败、超时被强杀或抛出 Python 异常，`finally` 块一律执行 `container.remove(force=True)`。
+6. **换行符防御**：
+   - 自动检测并临时将 CRLF (`\r\n`) 转换为 LF (`\n`)，避免 Windows 换行符污染。
+7. **POSIX sh 红线**：
+   - 容器内严格使用 `/bin/sh`，不依赖 `/bin/bash`，确保 Alpine 容器正常执行。
+
+---
+
+## 默认测试矩阵
 
 - `debian:12-slim`
 - `ubuntu:22.04`
@@ -44,47 +88,29 @@
 
 ---
 
-## 🚀 快速上手 (Quick Start)
+## 快速上手
 
-### 1. 本地安装
+### 本地命令行
 
-要求 Python >= 3.10，宿主机需运行 Docker 服务：
-
-```bash
-git clone https://github.com/your-org/opsscript-gate.git
-cd opsscript-gate
-pip install .
-```
-
-### 2. CLI 命令行使用
+环境要求：Python >= 3.10，宿主机安装并启动 Docker。
 
 ```bash
-# 基本运行（使用默认 4 镜像矩阵与 60s 超时）
-opsscript-gate run ./deploy.sh
+# 从仓库安装
+pip install git+https://github.com/Mresyzz/opsscript-gate.git
 
-# 自定义矩阵、超时与输出格式
-opsscript-gate run ./deploy.sh \
+# 基本使用（默认使用 4 个发行版矩阵）
+opsscript-gate run ./scripts/setup.sh
+
+# 自定义测试矩阵与超时时间
+opsscript-gate run ./scripts/setup.sh \
   --matrix "debian:12-slim,alpine:3.20" \
   --timeout 30 \
   --format table
 ```
 
-#### CLI 参数说明：
+### GitHub Actions 集成
 
-- `script_path`（必填）：要预演验证的 Shell 脚本路径。
-- `--matrix`（可选）：指定测试的 Docker 镜像列表，多个镜像以逗号分隔或重复指定。默认为 4 款常用发行版。
-- `--timeout`（可选）：单个发行版执行超时时间（秒），默认 60 秒。
-- `--format`（可选）：报告输出格式，可选 `table`（默认终端 ASCII 表格）、`markdown`（Markdown 表格与折叠详情）、`json`（JSON 数据结构）。
-
-#### 退出码规范：
-- 所有发行版均验证通过（PASS）：退出码为 `0`。
-- 任意一个发行版失败（FAIL）、超时（TIMED_OUT）或发生异常（ERROR）：退出码为 `1`。
-
----
-
-## 🤖 GitHub Actions 集成
-
-将 `opsscript-gate` 作为 Composite Action 引入您的 CI 流水线：
+在工作流文件（如 `.github/workflows/gate.yml`）中引入：
 
 ```yaml
 name: Script Compatibility Gate
@@ -104,7 +130,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run OpsScript Gate
-        uses: ./
+        uses: Mresyzz/opsscript-gate@v0.1.0
         with:
           script-path: 'scripts/setup.sh'
           matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
@@ -112,27 +138,44 @@ jobs:
           format: 'table'
 ```
 
-当运行在 GitHub Actions 环境中时，`opsscript-gate` 会自动检测 `$GITHUB_STEP_SUMMARY`，将 Markdown 诊断表格与日志折叠详情直接注入 Action Job 概览页面。
+---
+
+## CLI 参数说明
+
+`opsscript-gate run <script_path> [options]`
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `script_path` | 路径 (位置参数) | 必填 | 要预演验证的 Shell 脚本路径 |
+| `--matrix` | 字符串 | 4 个默认镜像 | 逗号分隔的容器镜像列表（如 `debian:12-slim,alpine:3.20`） |
+| `--timeout` | 整数 | `60` | 单个镜像最大执行时间（秒） |
+| `--format` | 选项 | `table` | 报告输出格式：`table`（终端对齐表格）、`markdown`、`json` |
+| `--version` | 标志 | - | 显示当前版本号 |
+| `-h, --help` | 标志 | - | 查看参数帮助信息 |
+
+#### 退出状态码：
+- **`0`**：所有指定发行版均验证通过（PASS）。
+- **`1`**：任一发行版失败（FAIL）、超时（TIMED_OUT）或发生异常（ERROR）。
 
 ---
 
-## 🧪 测试套件
+## 开发与本地测试
 
-项目包含完整的单元测试与集成测试：
-- **Mock 单元测试**：全面模拟 Docker SDK 调用与边界生命周期，无需宿主机 Docker 服务即可秒级测试通过。
-- **集成测试**：带 `@pytest.mark.integration` 标记，针对真实 Docker 镜像拉起并执行校验。
+测试套件已实现纯 Mock 隔离，无需启动 Docker 即可秒级执行：
 
-运行测试：
 ```bash
-# 运行快速单元测试（包含 Mock）
-pytest -m "not integration"
+# 安装开发与测试依赖
+pip install -e .[test]
 
-# 运行所有测试（需宿主机 Docker 已启动）
-pytest
+# 运行 Mock 单元测试
+pytest -v -m "not integration"
+
+# 运行全部测试（包含真实容器集成测试，需启动 Docker）
+pytest -v
 ```
 
 ---
 
-## 📄 许可证
+## 开源协议
 
-本项目基于 [MIT License](LICENSE) 协议开源。
+本项目采用 [MIT License](LICENSE) 协议开源。
