@@ -1,0 +1,33 @@
+name: Distribution Support Request
+description: Request adding a new Linux distribution or version to the default matrix
+title: "[DISTRO] Support "
+labels: ["distro-matrix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggesting a new Linux distribution? Please ensure an official public image exists and boots without interactive init.
+  - type: input
+    id: distro_image
+    attributes:
+      label: Proposed Docker Image
+      description: The official public container image tag.
+      placeholder: e.g. fedora:40, rockylinux:9
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Rationale & Industry Use Case
+      description: Why is testing this distribution valuable for production ops scripts?
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Distribution Compatibility Checklist
+      options:
+        - label: Image provides a standard POSIX /bin/sh.
+          required: true
+        - label: Container starts without systemd or interactive configuration.
+          required: true

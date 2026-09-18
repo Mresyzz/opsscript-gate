@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Lightweight unprivileged container cross-distro compatibility pre-check for Linux ops scripts'
+description: 'Run Linux shell scripts across Debian, Ubuntu and Alpine before release to catch runtime compatibility failures'
 author: 'Mresyzz'
 branding:
   icon: 'shield'

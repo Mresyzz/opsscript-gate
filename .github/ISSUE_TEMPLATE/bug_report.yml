@@ -1,0 +1,41 @@
+name: Bug Report
+description: File an issue about an unexpected failure or compatibility bug in opsscript-gate
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please provide as much detail as possible.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what happened.
+      placeholder: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: script
+    attributes:
+      label: Reproducible Shell Script
+      description: Provide a minimal shell script snippet reproducing the issue.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / Failure Diagnostics
+      description: Terminal output or GitHub Actions step summary.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Info
+      description: Operating system, Docker version, Python version, opsscript-gate version.
+      placeholder: Ubuntu 24.04, Docker 27.2, Python 3.12, opsscript-gate 0.1.1
+    validations:
+      required: false

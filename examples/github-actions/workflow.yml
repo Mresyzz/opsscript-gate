@@ -1,0 +1,25 @@
+name: Shell Script Compatibility Gate
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'bin/**'
+  push:
+    branches: [ main ]
+
+jobs:
+  verify-scripts:
+    name: Cross-Distro Compatibility Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Run OpsScript Gate
+        uses: Mresyzz/opsscript-gate@v0.1.1
+        with:
+          script-path: 'scripts/deploy.sh'
+          matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+          timeout: '60'
+          format: 'table'
