@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opsscript-gate"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight unprivileged container cross-distro compatibility gate for Linux ops shell scripts"
 readme = "README.md"
 license = { text = "MIT" }

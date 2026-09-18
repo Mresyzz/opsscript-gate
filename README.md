@@ -36,7 +36,7 @@
 
 ## 运行效果
 
-### 1. 成功预演终端输出 (ASCII Table)
+### 1. 成功预演终端输出（运行示例展示）
 
 ```text
 +--------------------+----------+-----------+------------+---------+
@@ -148,10 +148,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run OpsScript Gate
-        uses: Mresyzz/opsscript-gate@v0.1.0
+        uses: Mresyzz/opsscript-gate@v0.1.1
         with:
           script-path: 'scripts/setup.sh'
           matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
@@ -188,7 +188,7 @@ jobs:
 # 安装开发与测试依赖
 pip install -e .[test]
 
-# 运行快速单元测试（纯 Mock 覆盖所有生命周期与边界）
+# 运行单元测试（Mock 单元测试覆盖核心容器生命周期、安全约束与主要错误路径）
 pytest -v -m "not integration"
 
 # 运行完整测试（包含真实容器拉起测试，需 Docker 运行中）

@@ -36,6 +36,8 @@ jobs:
     name: Build & Publish Release
     needs: test
     runs-on: ubuntu-latest
+    env:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -61,9 +63,9 @@ jobs:
           generate_release_notes: true
 
       - name: Publish to PyPI (Optional)
-        if: secrets.PYPI_API_TOKEN != ''
+        if: env.PYPI_API_TOKEN != ''
         env:
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_PASSWORD: ${{ env.PYPI_API_TOKEN }}
           TWINE_USERNAME: __token__
         run: |
           pip install twine
