@@ -43,4 +43,4 @@ runs:
         if [ -n "${{ inputs.matrix }}" ]; then
           ARGS+=("--matrix" "${{ inputs.matrix }}")
         fi
-        opsscript-gate "${ARGS[@]}"
+        python -m opsscript_gate.cli "${ARGS[@]}"
