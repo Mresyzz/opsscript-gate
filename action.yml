@@ -1,0 +1,46 @@
+name: 'OpsScript Gate'
+description: 'Lightweight unprivileged container cross-distro compatibility pre-check for Linux ops scripts'
+author: 'OpsScript Gate Contributors'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  script-path:
+    description: 'Path to the target shell script to test'
+    required: true
+  matrix:
+    description: 'Comma-separated container images to test (e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
+    required: false
+    default: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+  timeout:
+    description: 'Hard timeout in seconds per container (default: 60)'
+    required: false
+    default: '60'
+  format:
+    description: 'Output report format: table, markdown, or json'
+    required: false
+    default: 'table'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install opsscript-gate
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install "${{ github.action_path }}"
+
+    - name: Run compatibility gate
+      shell: bash
+      run: |
+        ARGS=("run" "${{ inputs.script-path }}" "--timeout" "${{ inputs.timeout }}" "--format" "${{ inputs.format }}")
+        if [ -n "${{ inputs.matrix }}" ]; then
+          ARGS+=("--matrix" "${{ inputs.matrix }}")
+        fi
+        opsscript-gate "${ARGS[@]}"

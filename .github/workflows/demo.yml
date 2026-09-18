@@ -1,0 +1,23 @@
+name: Demo Shell Script Compatibility Gate
+
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - 'tests/fixtures/**'
+  workflow_dispatch:
+
+jobs:
+  validate-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pre-check basic setup script
+        uses: ./
+        with:
+          script-path: 'tests/fixtures/pass_basic.sh'
+          matrix: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+          timeout: '30'
+          format: 'table'

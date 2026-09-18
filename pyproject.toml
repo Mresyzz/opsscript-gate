@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opsscript-gate"
+version = "0.1.0"
+description = "Lightweight unprivileged container cross-distro compatibility gate for Linux ops shell scripts"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "docker>=7.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+opsscript-gate = "opsscript_gate.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opsscript_gate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: Integration tests requiring a running Docker daemon",
+]
