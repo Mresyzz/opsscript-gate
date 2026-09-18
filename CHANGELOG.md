@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-18
+
+### Added
+- Configured PyPI Trusted Publishing via GitHub Actions OIDC (`pypa/gh-action-pypi-publish`).
+- Added full PyPI package metadata, classifiers, and project URLs to `pyproject.toml`.
+- Ensured absolute asset URLs in `README.md` for seamless PyPI rendering.
+
+---
+
 ## [0.1.1] - 2026-09-18
 
 ### Added

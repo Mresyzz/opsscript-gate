@@ -4,14 +4,47 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opsscript-gate"
-version = "0.1.1"
+version = "0.1.2"
 description = "Run Linux shell scripts across Debian, Ubuntu and Alpine before release to catch runtime compatibility failures"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
+authors = [
+    { name = "Mresyzz", email = "mresygg@gmail.com" }
+]
+keywords = [
+    "shell",
+    "linux",
+    "devops",
+    "ci",
+    "github-actions",
+    "docker",
+    "compatibility",
+    "cross-distro",
+    "posix",
+    "testing",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
     "docker>=7.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Mresyzz/opsscript-gate"
+Repository = "https://github.com/Mresyzz/opsscript-gate"
+Issues = "https://github.com/Mresyzz/opsscript-gate/issues"
+Changelog = "https://github.com/Mresyzz/opsscript-gate/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = [

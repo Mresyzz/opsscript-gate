@@ -13,7 +13,7 @@
 **OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your shell scripts inside isolated Debian, Ubuntu, and Alpine containers before release, catching environment-specific runtime failures that static analysis cannot detect.
 
 <p align="center">
-  <img src=".github/assets/social-preview.png" alt="OpsScript Gate Terminal Preview" width="800">
+  <img src="https://raw.githubusercontent.com/Mresyzz/opsscript-gate/main/.github/assets/social-preview.png" alt="OpsScript Gate Terminal Preview" width="800">
 </p>
 
 ---
