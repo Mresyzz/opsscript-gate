@@ -17,10 +17,8 @@ The security of OpsScript Gate and host container isolation is our highest prior
 
 Instead, please report security issues responsibly through one of the following channels:
 
-1. **GitHub Private Vulnerability Reporting** (Recommended):
-   - Navigate to the [Security Advisories](https://github.com/Mresyzz/opsscript-gate/security/advisories/new) page of the repository and click **Report a vulnerability**.
-2. **Direct Security Contact**:
-   - Send an email to `mresygg@gmail.com` with the subject prefix `[SECURITY] opsscript-gate`.
+1. **GitHub Private Vulnerability Reporting** (Official Channel):
+   - Navigate to the [Security Advisories](https://github.com/Mresyzz/opsscript-gate/security/advisories/new) page of the repository and click **Report a vulnerability**. This provides an encrypted, private communication channel with maintainers without exposing private email addresses.
 
 ### Information to Include
 - A description of the issue and its potential impact.
