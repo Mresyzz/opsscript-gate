@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opsscript-gate"
+version = "0.1.0"
+description = "A lightweight, non-privileged containerized pre-release verification tool for shell scripts."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Jules", email = "jules@example.com" },
+]
+dependencies = [
+    "docker>=7.0.0",
+]
+
+[project.scripts]
+opsscript-gate = "opsscript_gate.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration (deselect with '-m \"not integration\"')",
+]

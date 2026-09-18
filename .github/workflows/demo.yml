@@ -1,0 +1,34 @@
+name: Demo opsscript-gate Action
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  verify-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify basic script
+        uses: ./
+        with:
+          script-path: "tests/fixtures/pass_basic.sh"
+
+      # This step is expected to fail on alpine
+      - name: Verify script with deps (Will fail)
+        continue-on-error: true
+        uses: ./
+        with:
+          script-path: "tests/fixtures/fail_deps.sh"
+
+      # This step is expected to fail/timeout due to hang
+      - name: Verify hanging script (Will fail)
+        continue-on-error: true
+        uses: ./
+        with:
+          script-path: "tests/fixtures/fail_hang.sh"
+          timeout: "5"
