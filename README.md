@@ -13,6 +13,8 @@
 
 **OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your scripts inside unprivileged Debian, Ubuntu, and Alpine containers before merge, catching environment-specific runtime failures, missing interpreters, and package-manager assumptions that static analysis cannot detect.
 
+It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
+
 ---
 
 ## ⚡ 30-Second Quickstart
@@ -59,6 +61,35 @@ opsscript-gate run ./scripts/install.sh
 # Or auto-discover scripts across your repository
 opsscript-gate run
 ```
+
+### Try a Real Failure in 30 Seconds
+
+Create `install.sh`:
+
+```sh
+#!/bin/sh
+set -e
+apt-get --version
+```
+
+Then run:
+
+```bash
+opsscript-gate run ./install.sh
+```
+
+A typical result across the default matrix looks like this:
+
+```text
+Debian 12        PASS
+Ubuntu 22.04     PASS
+Ubuntu 24.04     PASS
+Alpine 3.20      FAIL
+
+apt-get: not found
+```
+
+The script is valid shell, but the runtime environment is incompatible. That is exactly the class of failure OpsScript Gate is designed to catch.
 
 ---
 
@@ -162,7 +193,10 @@ sh: line 4: apt-get: not found
 
 ## 🔒 Security Boundaries & Hardened Isolation
 
-OpsScript Gate is not a security sandbox for untrusted code. Containers may run as the image's default user, and Docker containers still share the host kernel.
+OpsScript Gate is a runtime compatibility testing tool, **not a security sandbox for hostile or fully untrusted code**. Containers still share the host kernel, so target scripts should be treated accordingly.
+
+<details>
+<summary><strong>View security boundaries and runtime hardening details</strong></summary>
 
 OpsScript Gate applies conservative, restricted container defaults when running scripts:
 
@@ -180,21 +214,37 @@ OpsScript Gate applies conservative, restricted container defaults when running 
 4. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
    - Disconnects standard input: `/bin/sh -c "... /tmp/target_script.sh </dev/null"`.
-   - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`. Interactive prompts (`read -p`) fail immediately instead of hanging CI runners.
+   - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`. Interactive prompts (`read -p`) fail instead of hanging CI runners.
 5. **Hard Timeout & Container Cleanup**:
    - Enforces configurable timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
    - Container removal is attempted from a `finally` block in normal, failure, and timeout execution paths.
 6. **Bounded Output & Memory Protection**:
-   - Captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), which bounds retained container log data to reduce memory-exhaustion risk.
+   - Captures container logs using a rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and a 500-line tail limit (`MAX_LOG_TAIL_LINES`) to reduce memory-exhaustion risk from runaway output.
 7. **Untrusted Log Neutralization & Terminal Defense**:
    - Neutralizes line-leading workflow commands (`[container] ::`) to prevent forged GitHub Actions annotations in CI runners.
-   - Strips ANSI escape sequences and dangerous C0 control characters, and normalizes carriage returns (`\r`) to defeat terminal line overwrite spoofing.
-   - Employs context-sensitive escaping (`escape_inline_code`, `escape_markdown_text`, `escape_markdown_table_cell`, `escape_html_text`, `format_safe_code_fence`) to prevent Step Summary layout disruptions.
+   - Strips ANSI escape sequences and dangerous C0 control characters, and normalizes carriage returns (`\r`) to defeat terminal line-overwrite spoofing.
+   - Employs context-sensitive escaping (`escape_inline_code`, `escape_markdown_text`, `escape_markdown_table_cell`, `escape_html_text`, `format_safe_code_fence`) to protect Step Summary output contexts.
 8. **Command Injection Defense**:
-   - OpsScript Gate's own annotations (`::error`) apply strict percent-encoding for all properties and message bodies, preventing workflow command injection.
+   - OpsScript Gate's own annotations (`::error`) apply strict percent-encoding for workflow-command fields and message bodies.
 9. **Bounded Streaming CRLF & Shebang Defense**:
-   - Stream-normalizes carriage returns in 64 KiB chunks, preserving lone CR bytes and bounds shebang parsing to 4096 bytes without whole-file memory allocation.
+   - Stream-normalizes CRLF in 64 KiB chunks and bounds shebang parsing to 4096 bytes without whole-file memory allocation.
    - Pre-normalizes scripts once before parallel matrix runs, sharing a read-only prepared path across worker threads.
+
+For the complete supported-version policy and vulnerability reporting guidance, see [SECURITY.md](SECURITY.md).
+
+</details>
+
+### When NOT to use OpsScript Gate
+
+OpsScript Gate is intentionally focused on Linux shell runtime compatibility. It is not designed for:
+
+- executing hostile or fully untrusted third-party scripts
+- kernel-level or privileged behavior testing
+- replacing full integration or end-to-end test suites
+- validating macOS or Windows behavior
+- proving that a script is secure
+
+Use it when you want to know whether a shell script actually runs across the supported Linux distributions.
 
 ---
 
@@ -248,7 +298,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 
 ---
 
-## 🐶 Dogfooding
+## 🌍 Real-World Usage
 
 OpsScript Gate is actively used in [`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) to validate `install.sh` across the default Debian, Ubuntu, and Alpine matrix in GitHub Actions.
 
@@ -272,6 +322,14 @@ pytest -v -m "not integration"
 # Run integration tests (Requires local Docker daemon)
 pytest -v
 ```
+
+---
+
+## 💛 If OpsScript Gate Helps
+
+If OpsScript Gate catches a compatibility problem in one of your scripts, consider starring the repository so other shell and DevOps maintainers can find it too.
+
+Bug reports, real-world compatibility cases, and pull requests are especially welcome.
 
 ---
 
