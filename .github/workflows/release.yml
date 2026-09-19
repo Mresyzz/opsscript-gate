@@ -182,7 +182,7 @@ jobs:
           git push origin "$TARGET_TAG"
 
       - name: Create GitHub Release and Upload Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: steps.release-check.outputs.is_new_release == 'true'
         with:
           tag_name: ${{ steps.release-check.outputs.release_tag }}
