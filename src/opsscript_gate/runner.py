@@ -4,7 +4,7 @@ import os
 import re
 import tempfile
 import time
-from typing import Sequence
+from typing import Any, Sequence
 
 import docker
 from docker.errors import DockerException, ImageNotFound

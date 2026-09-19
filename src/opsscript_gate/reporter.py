@@ -303,7 +303,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     """
     Format an elegant GitHub-flavored Markdown Compatibility Card.
     Suitable for Step Summary and easily copyable into PR / Issue comments.
-    Guarantees strict context-sensitive escaping against Markdown/HTML injection.
+    Applies context-sensitive escaping for Markdown/HTML output contexts.
     """
     passed_count = sum(1 for r in report.results if r.status == DistroStatus.PASS)
     total_count = len(report.results)
