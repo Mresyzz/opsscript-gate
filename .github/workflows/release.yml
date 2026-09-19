@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -37,16 +39,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      is_new_release: ${{ steps.version-check.outputs.is_new_release }}
+      release_tag: ${{ steps.version-check.outputs.release_tag }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
-      - name: Verify Version Consistency
+      - name: Verify Version and Release Readiness
+        id: version-check
         shell: bash
         run: |
           TOML_VERSION=$(python -c "import tomllib; f=open('pyproject.toml', 'rb'); print(tomllib.load(f)['project']['version'])")
@@ -60,6 +68,9 @@ jobs:
             exit 1
           fi
 
+          TARGET_TAG="v$TOML_VERSION"
+          echo "Target release tag: $TARGET_TAG"
+
           if [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
             TAG_VERSION="${GITHUB_REF_NAME#v}"
             echo "Git tag version: $TAG_VERSION"
@@ -67,24 +78,52 @@ jobs:
               echo "::error::Tag mismatch: Git tag v$TAG_VERSION does not match project version $TOML_VERSION"
               exit 1
             fi
+            echo "is_new_release=true" >> "$GITHUB_OUTPUT"
+            echo "release_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            if git rev-parse -q --verify "refs/tags/$TARGET_TAG" >/dev/null; then
+              echo "Tag $TARGET_TAG already exists in git history. Skipping automated release."
+              echo "is_new_release=false" >> "$GITHUB_OUTPUT"
+              echo "release_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+            else
+              echo "New version detected on main ($TARGET_TAG does not exist yet). Proceeding with automated release."
+              echo "is_new_release=true" >> "$GITHUB_OUTPUT"
+              echo "release_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "is_new_release=true" >> "$GITHUB_OUTPUT"
+            echo "release_tag=$TARGET_TAG" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "Version consistency verified: $TOML_VERSION"
+      - name: Create and push Git tag
+        if: steps.version-check.outputs.is_new_release == 'true' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          TARGET_TAG="${{ steps.version-check.outputs.release_tag }}"
+          echo "Creating and pushing Git tag: $TARGET_TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TARGET_TAG"
+          git push origin "$TARGET_TAG"
 
       - name: Install build tools
+        if: steps.version-check.outputs.is_new_release == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install build twine
 
       - name: Build sdist and wheel
+        if: steps.version-check.outputs.is_new_release == 'true'
         run: |
           python -m build
 
       - name: Verify Package Metadata
+        if: steps.version-check.outputs.is_new_release == 'true'
         run: |
           python -m twine check dist/*
 
       - name: Upload dist artifacts
+        if: steps.version-check.outputs.is_new_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -93,15 +132,16 @@ jobs:
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.version-check.outputs.is_new_release == 'true'
         with:
+          tag_name: ${{ steps.version-check.outputs.release_tag }}
           files: dist/*
           generate_release_notes: true
 
   publish-pypi:
     name: Publish to PyPI via OIDC
     needs: [test, build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.is_new_release == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi

@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.2.1
+      - uses: Mresyzz/opsscript-gate@v0.3.0
         with:
           script-path: scripts/setup.sh
           shell: auto
