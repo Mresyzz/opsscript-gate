@@ -24,6 +24,10 @@ DEFAULT_MATRIX: list[str] = [
 
 DEFAULT_TIMEOUT: int = 60
 SNIPPET_LINE_LIMIT: int = 15
+MAX_CAPTURED_LOG_BYTES: int = 256 * 1024  # 256 KiB
+MAX_LOG_TAIL_LINES: int = 500
+MAX_SHEBANG_BYTES: int = 4096
+SCRIPT_READ_CHUNK_SIZE: int = 64 * 1024  # 64 KiB
 
 # Fixed trusted command mappings for supported shebang interpreter forms.
 # Any executed command is guaranteed to come strictly from this predefined constant map.
@@ -41,9 +45,38 @@ DEFAULT_POSIX_COMMAND: list[str] = ["/bin/sh", "-c", "/bin/sh /tmp/target_script
 # Regular expression matching common ANSI escape sequences:
 # 1. CSI (Control Sequence Introducer): ESC [ ... [@-~]
 # 2. OSC (Operating System Command): ESC ] ... (BEL | ST)
+# 3. Simple 2-byte escape sequences: ESC [@-Z\\-_]
 _ANSI_ESCAPE_RE = re.compile(
-    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))"
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])"
 )
+
+# C0 control characters to strip from terminal logs: all ASCII < 32 except \t (9) and \n (10), plus DEL (127)
+_DANGEROUS_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# Neutralize lines starting with "::" to prevent forged GitHub Actions workflow commands
+# e.g. "::error file=fake.sh::forged" -> "[container] ::error file=fake.sh::forged"
+_WORKFLOW_COMMAND_LINE_RE = re.compile(r"^(::)", re.MULTILINE)
+
+
+def sanitize_log_output(text: str) -> str:
+    """
+    Sanitize raw container log text for safe terminal display and report rendering:
+    - Strips ANSI CSI and OSC escape sequences
+    - Normalizes CRLF and standalone carriage returns to line feeds
+    - Removes dangerous C0 control characters (excluding newline and tab)
+    - Neutralizes line-leading '::' commands to prevent forged GitHub Actions workflow commands
+    - Preserves printable Unicode and valid text structure
+    """
+    if not text:
+        return ""
+    # Strip ANSI escape sequences
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    # Normalize CRLF and standalone CR (used for line overwrite spoofing)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip dangerous C0 control characters and DEL
+    text = _DANGEROUS_CONTROL_CHAR_RE.sub("", text)
+    # Neutralize line-leading '::' commands from untrusted container logs
+    return _WORKFLOW_COMMAND_LINE_RE.sub(r"[container] \1", text)
 
 
 def sanitize_diagnostic_text(text: str, max_length: int = 200) -> str:
@@ -216,11 +249,23 @@ def inspect_shebang(script_path: str) -> ShebangParseResult:
     """
     try:
         with open(script_path, "rb") as f:
-            first_line_bytes = f.readline()
+            first_line_bytes = f.readline(MAX_SHEBANG_BYTES + 1)
     except Exception as exc:
         return ShebangParseResult(
             status=ShebangStatus.MALFORMED,
             error_message=f"Failed to read script to parse shebang: {exc}",
+        )
+
+    raw_content = first_line_bytes.rstrip(b"\r\n")
+    if len(first_line_bytes) > MAX_SHEBANG_BYTES and not first_line_bytes.endswith((b"\n", b"\r")):
+        return ShebangParseResult(
+            status=ShebangStatus.MALFORMED,
+            error_message=f"Shebang line exceeds maximum allowed length of {MAX_SHEBANG_BYTES} bytes",
+        )
+    if len(raw_content) > MAX_SHEBANG_BYTES:
+        return ShebangParseResult(
+            status=ShebangStatus.MALFORMED,
+            error_message=f"Shebang line exceeds maximum allowed length of {MAX_SHEBANG_BYTES} bytes",
         )
 
     # Normalize carriage returns and decode without lstripping leading characters
@@ -367,25 +412,171 @@ def normalize_host_path_for_docker(path: str) -> str:
     return abs_path.replace("\\", "/")
 
 
-def prepare_script(script_path: str) -> tuple[str, tempfile.NamedTemporaryFile | None]:
+def prepare_script(
+    script_path: str,
+    chunk_size: int = SCRIPT_READ_CHUNK_SIZE,
+) -> tuple[str, tempfile.NamedTemporaryFile | None]:
     """
-    Check and normalize line endings (CRLF -> LF) to defend against
-    '\\r: command not found' errors in Linux containers (especially Alpine).
+    Check and stream-normalize line endings (CRLF -> LF) to defend against
+    '\\r: command not found' errors in Linux containers (especially Alpine)
+    without unbounded memory allocation.
+    Handles CRLF split across chunk boundaries while preserving lone CR bytes.
     Returns (path_to_mount, temp_file_or_none).
     """
     abs_path = os.path.abspath(script_path)
-    with open(abs_path, "rb") as f:
-        content = f.read()
+    if not os.path.isfile(abs_path):
+        return abs_path, None
 
-    if b"\r\n" in content:
-        # Normalize CRLF to LF in a temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".sh")
-        temp_file.write(content.replace(b"\r\n", b"\n"))
+    # First pass: stream-check if any CRLF exists without loading the entire file into RAM
+    has_crlf = False
+    with open(abs_path, "rb") as f:
+        prev_byte = b""
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            if b"\r\n" in chunk or (prev_byte == b"\r" and chunk.startswith(b"\n")):
+                has_crlf = True
+                break
+            prev_byte = chunk[-1:]
+
+    if not has_crlf:
+        return abs_path, None
+
+    # Stream-normalize CRLF into temporary file in fixed-size chunks
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".sh")
+    try:
+        with open(abs_path, "rb") as src:
+            carry_cr = False
+            while True:
+                chunk = src.read(chunk_size)
+                if not chunk:
+                    if carry_cr:
+                        temp_file.write(b"\r")
+                    break
+
+                if carry_cr:
+                    if chunk.startswith(b"\n"):
+                        # CRLF split across boundary -> write single LF
+                        chunk = chunk[1:]
+                        temp_file.write(b"\n")
+                    else:
+                        # Lone CR before non-LF byte -> preserve lone CR
+                        temp_file.write(b"\r")
+                    carry_cr = False
+
+                if chunk.endswith(b"\r"):
+                    carry_cr = True
+                    chunk = chunk[:-1]
+
+                if chunk:
+                    temp_file.write(chunk.replace(b"\r\n", b"\n"))
+
         temp_file.flush()
         temp_file.close()
         return temp_file.name, temp_file
+    except Exception:
+        temp_file.close()
+        if os.path.exists(temp_file.name):
+            try:
+                os.remove(temp_file.name)
+            except Exception:
+                pass
+        raise
 
-    return abs_path, None
+
+def collect_container_logs(
+    container: Any,
+    max_bytes: int = MAX_CAPTURED_LOG_BYTES,
+    tail_lines: int = MAX_LOG_TAIL_LINES,
+) -> str:
+    """
+    Safely capture logs from container with tail-line and byte-size bounds using a true
+    rolling byte buffer. Guarantees memory usage is strictly bounded at every step.
+    """
+    try:
+        # Request bounded tail lines from daemon via stream
+        raw = container.logs(stdout=True, stderr=True, tail=tail_lines, stream=True)
+        if hasattr(raw, "__iter__") and not isinstance(raw, (bytes, str, bytearray)):
+            buffer = bytearray()
+            for chunk in raw:
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8", errors="replace")
+                if not isinstance(chunk, (bytes, bytearray)):
+                    continue
+                buffer.extend(chunk)
+                if len(buffer) > max_bytes:
+                    # Rolling buffer: strictly drop bytes older than max_bytes immediately
+                    del buffer[:-max_bytes]
+            return buffer.decode("utf-8", errors="replace")
+        else:
+            # Fallback if logs returned full string or bytes
+            if isinstance(raw, str):
+                raw_bytes = raw.encode("utf-8", errors="replace")
+            elif isinstance(raw, (bytes, bytearray)):
+                raw_bytes = bytes(raw)
+            else:
+                raw_bytes = str(raw).encode("utf-8", errors="replace")
+            if len(raw_bytes) > max_bytes:
+                raw_bytes = raw_bytes[-max_bytes:]
+            return raw_bytes.decode("utf-8", errors="replace")
+    except Exception:
+        # Fallback to non-streaming logs with tail limit; bounded immediately
+        try:
+            raw = container.logs(stdout=True, stderr=True, tail=tail_lines)
+            if isinstance(raw, str):
+                raw_bytes = raw.encode("utf-8", errors="replace")
+            elif isinstance(raw, (bytes, bytearray)):
+                raw_bytes = bytes(raw)
+            else:
+                raw_bytes = str(raw).encode("utf-8", errors="replace")
+            if len(raw_bytes) > max_bytes:
+                raw_bytes = raw_bytes[-max_bytes:]
+            return raw_bytes.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+
+
+def _resolve_shell_command(
+    mode: ShellMode,
+    shebang_res: ShebangParseResult | None,
+) -> tuple[list[str] | None, str | None]:
+    """
+    Resolve container execution command based on shell mode and shebang parse result.
+    Returns (command_list, error_message). If error_message is not None, command_list is None.
+    """
+    if mode == ShellMode.POSIX:
+        return list(DEFAULT_POSIX_COMMAND), None
+
+    if shebang_res is None:
+        return None, "Parsed shebang information is missing"
+
+    if mode == ShellMode.SHEBANG:
+        if shebang_res.status == ShebangStatus.MISSING:
+            return None, "No shebang found in script (required by --shell shebang)"
+        if shebang_res.status == ShebangStatus.MALFORMED:
+            return None, shebang_res.error_message or "Malformed shebang in script"
+        if shebang_res.status == ShebangStatus.UNSUPPORTED:
+            return None, shebang_res.error_message or "Unsupported shebang interpreter"
+        cmd_key = shebang_res.command_key
+        if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
+            return list(SUPPORTED_SHEBANG_COMMANDS[cmd_key]), None
+        return None, f"Unsupported shebang command: {cmd_key}"
+
+    if mode == ShellMode.AUTO:
+        if shebang_res.status == ShebangStatus.MALFORMED:
+            return None, shebang_res.error_message or "Malformed shebang in script"
+        if shebang_res.status == ShebangStatus.UNSUPPORTED:
+            return None, shebang_res.error_message or "Unsupported shebang interpreter"
+        if shebang_res.status == ShebangStatus.RECOGNIZED:
+            cmd_key = shebang_res.command_key
+            if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
+                return list(SUPPORTED_SHEBANG_COMMANDS[cmd_key]), None
+            return None, f"Unsupported shebang command: {cmd_key}"
+        # MISSING shebang -> auto falls back to /bin/sh
+        return list(DEFAULT_POSIX_COMMAND), None
+
+    return None, f"Unsupported shell mode: {mode}"
 
 
 def run_on_distro(
@@ -399,6 +590,7 @@ def run_on_distro(
     mem_limit: str = "256m",
     pids_limit: int = 128,
     network: str = "bridge",
+    prepared_script_path: str | None = None,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
@@ -427,100 +619,37 @@ def run_on_distro(
             error_message=f"Target script does not exist: {abs_script}",
         )
 
-    if mode == ShellMode.POSIX:
-        # posix: strictly /bin/sh; do not parse shebang at all
-        command = list(DEFAULT_POSIX_COMMAND)
-    elif mode == ShellMode.SHEBANG:
+    shebang_res = None
+    if mode != ShellMode.POSIX:
         shebang_res = parsed_shebang if parsed_shebang is not None else inspect_shebang(abs_script)
-        if shebang_res.status == ShebangStatus.MISSING:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message="No shebang found in script (required by --shell shebang)",
-            )
-        if shebang_res.status == ShebangStatus.MALFORMED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Malformed shebang in script",
-            )
-        if shebang_res.status == ShebangStatus.UNSUPPORTED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
-            )
-        cmd_key = shebang_res.command_key
-        if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
-            command = list(SUPPORTED_SHEBANG_COMMANDS[cmd_key])
-        else:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=f"Unsupported shebang command: {cmd_key}",
-            )
-    elif mode == ShellMode.AUTO:
-        shebang_res = parsed_shebang if parsed_shebang is not None else inspect_shebang(abs_script)
-        if shebang_res.status == ShebangStatus.MALFORMED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Malformed shebang in script",
-            )
-        if shebang_res.status == ShebangStatus.UNSUPPORTED:
-            return SingleResult(
-                distro=distro,
-                status=DistroStatus.ERROR,
-                exit_code=None,
-                duration=0.0,
-                output_snippet="",
-                error_message=shebang_res.error_message or "Unsupported shebang interpreter",
-            )
-        if shebang_res.status == ShebangStatus.RECOGNIZED:
-            cmd_key = shebang_res.command_key
-            if cmd_key and cmd_key in SUPPORTED_SHEBANG_COMMANDS:
-                command = list(SUPPORTED_SHEBANG_COMMANDS[cmd_key])
-            else:
-                return SingleResult(
-                    distro=distro,
-                    status=DistroStatus.ERROR,
-                    exit_code=None,
-                    duration=0.0,
-                    output_snippet="",
-                    error_message=f"Unsupported shebang command: {cmd_key}",
-                )
-        else:
-            # MISSING shebang -> auto falls back to /bin/sh
-            command = list(DEFAULT_POSIX_COMMAND)
 
-    # Line-ending defense & Windows-safe path preparation
-    temp_file = None
-    try:
-        mount_src, temp_file = prepare_script(abs_script)
-    except Exception as exc:
+    command, cmd_err = _resolve_shell_command(mode, shebang_res)
+    if cmd_err is not None or command is None:
         return SingleResult(
             distro=distro,
             status=DistroStatus.ERROR,
             exit_code=None,
             duration=0.0,
             output_snippet="",
-            error_message=f"Failed to read/prepare script: {exc}",
+            error_message=cmd_err or "Failed to resolve execution command",
         )
+
+    # Line-ending defense & Windows-safe path preparation
+    own_temp_file: tempfile.NamedTemporaryFile | None = None
+    if prepared_script_path is not None:
+        mount_src = prepared_script_path
+    else:
+        try:
+            mount_src, own_temp_file = prepare_script(abs_script)
+        except Exception as exc:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=f"Failed to read/prepare script: {exc}",
+            )
 
     safe_mount_src = normalize_host_path_for_docker(mount_src)
 
@@ -597,12 +726,9 @@ def run_on_distro(
 
         duration = time.perf_counter() - start_time
 
-        # Retrieve container logs
-        try:
-            raw_logs = container.logs(stdout=True, stderr=True)
-            output = raw_logs.decode("utf-8", errors="replace") if isinstance(raw_logs, bytes) else str(raw_logs)
-        except Exception:
-            output = ""
+        # Retrieve container logs safely with bounded memory and sanitization
+        raw_logs = collect_container_logs(container)
+        output = sanitize_log_output(raw_logs)
 
         if timed_out:
             return SingleResult(
@@ -659,11 +785,11 @@ def run_on_distro(
                 container.remove(force=True)
             except Exception:
                 pass
-        # Clean up temporary CRLF normalized file if created
-        if temp_file is not None:
+        # Clean up temporary CRLF normalized file if created locally by this worker
+        if own_temp_file is not None:
             try:
-                if os.path.exists(temp_file.name):
-                    os.remove(temp_file.name)
+                if os.path.exists(own_temp_file.name):
+                    os.remove(own_temp_file.name)
             except Exception:
                 pass
 
@@ -689,9 +815,9 @@ def run_matrix(
     except ValueError:
         mode = None
 
+    abs_script = os.path.abspath(script_path)
     parsed_shebang: ShebangParseResult | None = None
     if mode is not None and mode != ShellMode.POSIX:
-        abs_script = os.path.abspath(script_path)
         if os.path.isfile(abs_script):
             parsed_shebang = inspect_shebang(abs_script)
 
@@ -700,6 +826,15 @@ def run_matrix(
 
     effective_jobs = jobs if (jobs is not None and jobs > 0) else min(2, len(distro_list))
     effective_jobs = max(1, effective_jobs)
+
+    # Prepare script once for all parallel matrix workers
+    shared_temp_file: tempfile.NamedTemporaryFile | None = None
+    prepared_script: str = abs_script
+    if os.path.isfile(abs_script):
+        try:
+            prepared_script, shared_temp_file = prepare_script(abs_script)
+        except Exception:
+            prepared_script = abs_script
 
     start_total = time.perf_counter()
     results: list[SingleResult] = [None] * len(distro_list)  # type: ignore
@@ -715,22 +850,32 @@ def run_matrix(
             mem_limit=mem_limit,
             pids_limit=pids_limit,
             network=network,
+            prepared_script_path=prepared_script,
         )
         return index, res
 
-    if effective_jobs == 1 or len(distro_list) <= 1:
-        for idx, distro_name in enumerate(distro_list):
-            _, res = _worker(idx, distro_name)
-            results[idx] = res
-    else:
-        with ThreadPoolExecutor(max_workers=effective_jobs) as executor:
-            futures = [
-                executor.submit(_worker, idx, distro_name)
-                for idx, distro_name in enumerate(distro_list)
-            ]
-            for fut in as_completed(futures):
-                idx, res = fut.result()
+    try:
+        if effective_jobs == 1 or len(distro_list) <= 1:
+            for idx, distro_name in enumerate(distro_list):
+                _, res = _worker(idx, distro_name)
                 results[idx] = res
+        else:
+            with ThreadPoolExecutor(max_workers=effective_jobs) as executor:
+                futures = [
+                    executor.submit(_worker, idx, distro_name)
+                    for idx, distro_name in enumerate(distro_list)
+                ]
+                for fut in as_completed(futures):
+                    idx, res = fut.result()
+                    results[idx] = res
+    finally:
+        # Clean up temporary CRLF normalized file exactly once after all matrix workers complete
+        if shared_temp_file is not None:
+            try:
+                if os.path.exists(shared_temp_file.name):
+                    os.remove(shared_temp_file.name)
+            except Exception:
+                pass
 
     total_duration = time.perf_counter() - start_total
     all_passed = all(r.status == DistroStatus.PASS for r in results) if results else True

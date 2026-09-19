@@ -1,9 +1,101 @@
-from __future__ import annotations
-
+import html
 import json
 import os
+import re
 import sys
 from opsscript_gate.models import DistroStatus, MultiScriptReport, RunReport, SingleResult
+
+# Structure-altering Markdown characters in regular prose:
+# \ ` * _ [ ] ( ) # + - ! > ~ |
+_MARKDOWN_SPECIAL_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!>~|])")
+
+
+def escape_inline_code(text: str) -> str:
+    """
+    Escape text for safe inclusion inside Markdown inline code spans (`...`).
+    Replaces backticks with single quotes and strips newlines to prevent code-span breakouts.
+    """
+    if not text:
+        return ""
+    cleaned = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return cleaned.replace("`", "'")
+
+
+def escape_markdown_text(text: str) -> str:
+    """
+    Escape structure-altering characters in normal Markdown text.
+    Prevents headings, blockquotes, raw HTML, links, and formatting injection
+    while preserving standard technical terms like 'non-zero' or 'x86_64'.
+    """
+    if not text:
+        return ""
+    # Neutralize HTML tags and entities
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Escape brackets, parentheses, pipes, backticks, and backslashes to prevent links/code spans
+    text = text.replace("\\", "\\\\")
+    text = text.replace("`", "\\`").replace("[", "\\[").replace("]", "\\]")
+    text = text.replace("(", "\\(").replace(")", "\\)").replace("|", "\\|")
+
+    # Neutralize line-leading markdown structures (headings, blockquotes, list markers)
+    def _neutralize_line_start(m: re.Match) -> str:
+        lead, ch = m.group(1), m.group(2)
+        if ch in ("#", ">", "-", "+", "*"):
+            return f"{lead}\\{ch}"
+        return m.group(0)
+
+    return re.sub(r"^(\s*)([#>+\-*])", _neutralize_line_start, text, flags=re.MULTILINE)
+
+
+def escape_markdown_table_cell(text: str) -> str:
+    """
+    Escape content for safe inclusion in Markdown table cells.
+    Replaces newlines with spaces and escapes pipe characters.
+    """
+    if not text:
+        return ""
+    cleaned = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return cleaned.replace("|", "\\|")
+
+
+def escape_html_text(text: str) -> str:
+    """
+    Escape text for safe inclusion in HTML tags and attributes (e.g. <summary>).
+    """
+    if not text:
+        return ""
+    return html.escape(text, quote=True)
+
+
+def format_safe_code_fence(content: str, language: str = "text") -> list[str]:
+    """
+    Safely enclose content in a markdown code block.
+    Dynamically adjusts backtick count to prevent premature closing,
+    and neutralizes closing HTML tags (e.g. </details>) that could break surrounding containers.
+    """
+    if not content:
+        return [f"```{language}", "```"]
+
+    # Neutralize closing tags if present inside snippet so HTML details/summary container isn't closed
+    safe_content = (
+        content.replace("</details>", "<\\/details>")
+        .replace("</summary>", "<\\/summary>")
+        .replace("<details>", "<\\details>")
+        .replace("<summary>", "<\\summary>")
+    )
+
+    # Calculate max consecutive backticks in content
+    max_backticks = 3
+    current_run = 0
+    for ch in safe_content:
+        if ch == "`":
+            current_run += 1
+            if current_run >= max_backticks:
+                max_backticks = current_run + 1
+        else:
+            current_run = 0
+
+    fence = "`" * max_backticks
+    return [f"{fence}{language}", safe_content, fence]
 
 
 def escape_github_property(value: str) -> str:
@@ -203,6 +295,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     """
     Format an elegant GitHub-flavored Markdown Compatibility Card.
     Suitable for Step Summary and easily copyable into PR / Issue comments.
+    Guarantees strict context-sensitive escaping against Markdown/HTML injection.
     """
     passed_count = sum(1 for r in report.results if r.status == DistroStatus.PASS)
     total_count = len(report.results)
@@ -217,7 +310,8 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         "",
     ]
     if script_path:
-        lines.append(f"**Target Script**: `{script_path}`  ")
+        safe_script_path = escape_inline_code(script_path)
+        lines.append(f"**Target Script**: `{safe_script_path}`  ")
     lines.append(f"**Status**: {badge}  ")
     lines.append(f"**Total Duration**: `{report.total_duration:.2f}s`")
     lines.append("")
@@ -236,24 +330,29 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         else:
             status_icon = "⚠️ ERROR"
 
+        safe_distro = escape_inline_code(r.distro)
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
 
-        diag_cell = "OK"
-        if r.diagnostic:
+        if r.status == DistroStatus.PASS:
+            diag_cell = "OK"
+        elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
-            clean_cmd = f"`{r.diagnostic.command}`" if r.diagnostic.command else "command"
+            clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
             diag_cell = f"⚠️ Missing command: {clean_cmd}{line_str}"
             if r.diagnostic.hint:
-                diag_cell += f"<br>💡 *{r.diagnostic.hint}*"
+                safe_hint = escape_markdown_table_cell(r.diagnostic.hint)
+                diag_cell += f"<br>💡 *{safe_hint}*"
         elif r.error_message:
-            diag_cell = r.error_message
+            diag_cell = escape_markdown_table_cell(r.error_message)
         elif r.status != DistroStatus.PASS:
             diag_cell = f"Non-zero exit code: {r.exit_code}"
+        else:
+            diag_cell = "-"
 
-        diag_cell_escaped = diag_cell.replace("|", "\\|")
+        diag_cell_escaped = escape_markdown_table_cell(diag_cell)
         lines.append(
-            f"| `{r.distro}` | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell_escaped} |"
+            f"| `{safe_distro}` | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell_escaped} |"
         )
 
     lines.append("")
@@ -263,21 +362,29 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     lines.append("<summary>📋 <b>Copyable Markdown (Click to expand & copy to PR / Issue)</b></summary>")
     lines.append("")
     lines.append("```markdown")
-    lines.append(f"### 🛡️ OpsScript Gate: {passed_count}/{total_count} Passed (`{script_path or 'target'}`)")
+    safe_copy_target = escape_inline_code(script_path or "target")
+    lines.append(f"### 🛡️ OpsScript Gate: {passed_count}/{total_count} Passed (`{safe_copy_target}`)")
     lines.append("| Distribution | Status | Time | Details |")
     lines.append("| :--- | :---: | :---: | :--- |")
     for r in report.results:
         icon = "✅" if r.status == DistroStatus.PASS else "❌"
-        detail = "OK"
-        if r.diagnostic:
-            detail = f"Missing `{r.diagnostic.command}`"
+        safe_copy_distro = escape_inline_code(r.distro)
+        if r.status == DistroStatus.PASS:
+            detail = "OK"
+        elif r.diagnostic:
+            safe_cmd = escape_inline_code(r.diagnostic.command or "")
+            detail = f"Missing `{safe_cmd}`"
             if r.diagnostic.line:
                 detail += f" (L{r.diagnostic.line})"
             if r.diagnostic.hint:
-                detail += f" — *{r.diagnostic.hint}*"
+                safe_hint = escape_markdown_table_cell(r.diagnostic.hint)
+                detail += f" — *{safe_hint}*"
         elif r.error_message:
-            detail = r.error_message
-        lines.append(f"| `{r.distro}` | {icon} {r.status.value} | `{r.duration:.2f}s` | {detail} |")
+            detail = escape_markdown_table_cell(r.error_message)
+        else:
+            detail = "-"
+        safe_detail = escape_markdown_table_cell(detail)
+        lines.append(f"| `{safe_copy_distro}` | {icon} {r.status.value} | `{r.duration:.2f}s` | {safe_detail} |")
     lines.append("```")
     lines.append("</details>")
     lines.append("")
@@ -287,23 +394,26 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     if failures:
         lines.append("### 🔍 Failure Diagnostic Logs")
         for r in failures:
-            lines.append(f"<details><summary><b>[{r.status.value}] {r.distro}</b></summary>")
+            safe_status = escape_html_text(r.status.value)
+            safe_distro = escape_html_text(r.distro)
+            lines.append(f"<details><summary><b>[{safe_status}] {safe_distro}</b></summary>")
             lines.append("")
             if r.diagnostic:
-                clean_kind = r.diagnostic.kind.replace("`", "'")
-                clean_msg = r.diagnostic.message.replace("`", "'")
+                clean_kind = escape_inline_code(r.diagnostic.kind)
+                clean_msg = escape_inline_code(r.diagnostic.message)
                 line_info = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
                 lines.append(f"> **Diagnostic:** `{clean_kind}` — `{clean_msg}`{line_info}")
                 if r.diagnostic.hint:
-                    lines.append(f"> 💡 **Recommendation:** {r.diagnostic.hint}")
+                    safe_hint = escape_markdown_text(r.diagnostic.hint)
+                    lines.append(f"> 💡 **Recommendation:** {safe_hint}")
                 lines.append("")
             if r.error_message:
-                lines.append(f"> **Error:** {r.error_message}")
+                safe_err = escape_markdown_text(r.error_message)
+                lines.append(f"> **Error:** {safe_err}")
                 lines.append("")
             if r.output_snippet:
-                lines.append("```text")
-                lines.append(r.output_snippet)
-                lines.append("```")
+                fence_lines = format_safe_code_fence(r.output_snippet, language="text")
+                lines.extend(fence_lines)
             else:
                 lines.append("*No output captured.*")
             lines.append("</details>")

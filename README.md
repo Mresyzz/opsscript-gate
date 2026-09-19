@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.4.0
+      - uses: Mresyzz/opsscript-gate@v0.4.1
 ```
 
 > **Zero Config**: If `script-path` is omitted, OpsScript Gate automatically discovers shell scripts in your repository and tests them concurrently!
@@ -38,7 +38,7 @@ jobs:
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.4.0
+      - uses: Mresyzz/opsscript-gate@v0.4.1
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -183,11 +183,18 @@ OpsScript Gate applies conservative, restricted container defaults when running 
    - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`. Interactive prompts (`read -p`) fail immediately instead of hanging CI runners.
 5. **Hard Timeout & Container Cleanup**:
    - Enforces configurable timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
-   - Container removal is attempted from a `finally` block in normal, failure, and timeout execution paths.
-6. **Command Injection Defense**:
-   - Workflow commands (`::error`) apply strict percent-encoding for all properties and message bodies, preventing unclassified container logs from injecting GitHub Actions workflow commands.
-7. **Windows CRLF Defense**:
-   - Automatically detects and normalizes carriage returns (`\r\n` -> `\n`) before container execution, preventing false `\r: command not found` errors.
+   - Container removal is performed in a `finally` block across normal, failure, and timeout execution paths.
+6. **Bounded Output & Memory Protection**:
+   - Captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), eliminating runner memory exhaustion.
+7. **Untrusted Log Neutralization & Terminal Defense**:
+   - Neutralizes line-leading workflow commands (`[container] ::`) to prevent forged GitHub Actions annotations in CI runners.
+   - Strips ANSI escape sequences and dangerous C0 control characters, and normalizes carriage returns (`\r`) to defeat terminal line overwrite spoofing.
+   - Employs context-sensitive escaping (`escape_inline_code`, `escape_markdown_text`, `escape_markdown_table_cell`, `escape_html_text`, `format_safe_code_fence`) to prevent Step Summary layout disruptions.
+8. **Command Injection Defense**:
+   - OpsScript Gate's own annotations (`::error`) apply strict percent-encoding for all properties and message bodies, preventing workflow command injection.
+9. **Bounded Streaming CRLF & Shebang Defense**:
+   - Stream-normalizes carriage returns in 64 KiB chunks, preserving lone CR bytes and bounds shebang parsing to 4096 bytes without whole-file memory allocation.
+   - Pre-normalizes scripts once before parallel matrix runs, sharing a read-only prepared path across worker threads.
 
 ---
 
