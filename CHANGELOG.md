@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - High-confidence dual-signal classification: requires exit code 127 and matching shell output to produce a `missing_command` diagnostic.
 - Additive `diagnostic` field in JSON report format (`SingleResult.to_dict()`) providing structured diagnostic information (backward-compatible for consumers tolerating additional fields).
 - Enhanced terminal table formatting and GitHub Actions Step Summary showing clear failure causes in the summary overview.
-- Automated release on merge to main when project version is bumped.
 
 ---
 

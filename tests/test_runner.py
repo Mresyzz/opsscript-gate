@@ -870,6 +870,9 @@ def test_integration_fail_deps_alpine():
     assert report.all_passed is False
     assert report.results[0].status == DistroStatus.FAIL
     assert report.results[0].exit_code == 127
+    assert report.results[0].diagnostic is not None
+    assert report.results[0].diagnostic.kind == "missing_command"
+    assert report.results[0].diagnostic.command == "apt-get"
 
 
 @pytest.mark.integration
@@ -884,6 +887,9 @@ def test_integration_missing_bash_alpine(tmp_path):
     assert report.results[0].status == DistroStatus.FAIL
     assert report.results[0].exit_code == 127
     assert "not found" in (report.results[0].output_snippet or "").lower()
+    assert report.results[0].diagnostic is not None
+    assert report.results[0].diagnostic.kind == "missing_command"
+    assert report.results[0].diagnostic.command == "/bin/bash"
 
 
 # ==============================================================================
@@ -910,8 +916,8 @@ def test_extract_failure_diagnostic_positive_variants():
     assert diag3.command == "foo_bar"
     assert diag3.message == "command not found: foo_bar"
 
-    # Direct short command
-    diag4 = extract_failure_diagnostic("apt-get: not found", exit_code=127)
+    # Ash style direct command
+    diag4 = extract_failure_diagnostic("sh: apt-get: not found", exit_code=127)
     assert diag4 is not None
     assert diag4.command == "apt-get"
 
@@ -948,10 +954,15 @@ def test_extract_failure_diagnostic_negative_rules():
     assert extract_failure_diagnostic("", exit_code=127) is None
     assert extract_failure_diagnostic("Unknown fatal error", exit_code=127) is None
 
+    # Application output with arbitrary prefixes or missing shell-origin format
+    assert extract_failure_diagnostic("Error: apt-get: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("myapp: plugin: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("apt-get: not found", exit_code=127) is None
+
     # Matching output but exit code != 127 (e.g. exit 1 or 2)
     assert extract_failure_diagnostic("bash: foo: command not found", exit_code=1) is None
-    assert extract_failure_diagnostic("apt-get: not found", exit_code=2) is None
-    assert extract_failure_diagnostic("/tmp/script.sh: curl: not found", exit_code=None) is None
+    assert extract_failure_diagnostic("sh: apt-get: not found", exit_code=2) is None
+    assert extract_failure_diagnostic("/tmp/script.sh: line 1: curl: not found", exit_code=None) is None
 
     # Program merely printing command-not-found-like text
     assert extract_failure_diagnostic("cat: /etc/hosts: File not found", exit_code=127) is None

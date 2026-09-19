@@ -67,16 +67,25 @@ def sanitize_diagnostic_text(text: str, max_length: int = 200) -> str:
     return sanitized
 
 
-# Conservative regular expression matching common shell 'not found' error patterns:
+# Conservative regular expression matching recognized shell-origin 'not found' error patterns:
 # Examples:
-#   - "apt-get: not found"
-#   - "bash: foo: command not found"
-#   - "/tmp/target_script.sh: line 4: curl: not found"
-#   - "/bin/sh: line 1: /usr/bin/bash: not found"
+#   - BusyBox ash: "sh: line 4: apt-get: not found", "sh: curl: not found", "/bin/sh: ...: not found"
+#   - Debian dash: "dash: 1: curl: not found", "sh: 1: curl: not found"
+#   - Bash: "bash: line 4: foo: command not found", "bash: foo: command not found"
+#   - /bin/sh: "/bin/sh: line 1: /usr/bin/bash: not found", "/bin/sh: curl: not found"
+#   - script-path + line-number forms: "/tmp/target_script.sh: line 4: curl: not found", "test.sh: 4: curl: not found"
 _MISSING_COMMAND_RE = re.compile(
     r"""
     (?:^|(?<=[\r\n]))                                  # start of line
-    (?:\s*[^:\r\n]+:\s*)*                              # optional prefixes like 'sh: ', 'line 4: ', 'script.sh: 2: '
+    \s*
+    (?:
+        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)        # recognized shell interpreter name
+        (?::\s*[^:\r\n]+)?                             # optional script path within shell error
+        (?::\s*(?:line\s+\d+|\d+))?                    # optional line indicator
+        |
+        [^:\r\n]+?:\s*(?:line\s+\d+|\d+)               # script-path + line-number forms
+    )
+    :\s+                                               # separator after shell-origin prefix
     (?P<cmd>['"`]?[\w./+-]+['"`]?)                     # strictly valid command identifier/path
     :\s+                                               # colon separator
     (?:command\s+not\s+found|not\s+found)              # missing command indicator
