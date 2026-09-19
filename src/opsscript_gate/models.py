@@ -26,6 +26,9 @@ class FailureDiagnostic:
     kind: str
     message: str
     command: str | None = None
+    line: int | None = None
+    distro: str | None = None
+    hint: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -34,6 +37,12 @@ class FailureDiagnostic:
         }
         if self.command is not None:
             d["command"] = self.command
+        if self.line is not None:
+            d["line"] = self.line
+        if self.distro is not None:
+            d["distro"] = self.distro
+        if self.hint is not None:
+            d["hint"] = self.hint
         return d
 
 
@@ -76,6 +85,27 @@ class RunReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "results": [r.to_dict() for r in self.results],
+            "total_duration": round(self.total_duration, 3),
+            "all_passed": self.all_passed,
+        }
+
+
+@dataclass
+class MultiScriptReport:
+    """Consolidated report across multiple tested scripts."""
+    reports: dict[str, RunReport] = field(default_factory=dict)
+    total_duration: float = 0.0
+    all_passed: bool = True
+
+    def __post_init__(self) -> None:
+        if self.reports:
+            self.all_passed = all(r.all_passed for r in self.reports.values())
+        else:
+            self.all_passed = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reports": {script: r.to_dict() for script, r in self.reports.items()},
             "total_duration": round(self.total_duration, 3),
             "all_passed": self.all_passed,
         }

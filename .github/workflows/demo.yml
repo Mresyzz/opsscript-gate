@@ -3,6 +3,8 @@ name: Demo Shell Script Compatibility Gate
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:

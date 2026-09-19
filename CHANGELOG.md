@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-19
+
+### Added
+- **High-confidence line-level GitHub Actions annotations**: Emits inline `::error` annotations with exact script line numbers directly on pull request file diffs.
+- **Workflow command injection defense**: Strictly escapes parameters (`%`, `\r`, `\n`, `:`, `,`) and message bodies (`%`, `\r`, `\n`) to eliminate command injection from unclassified container logs.
+- **Conservative distro-aware remediation hints**: Suggests testable, high-confidence remediation recommendations (`RemediationRule`) with conservative phrasing (`normally`, `may`, `consider`), covering:
+  - Alpine package manager mismatches (`apt`/`apt-get` -> `apk`)
+  - Debian/Ubuntu package manager mismatches (`apk` -> `apt-get`)
+  - Alpine minimal missing Bash (`bash` -> consider POSIX sh or installing bash)
+  - Missing network prerequisites (`curl`, `wget`)
+  - Missing shebang interpreter paths.
+- **Re-engineered Compatibility Card**: Overhauled GitHub Actions Step Summary with an instant 5-second triage table and an expandable copy-pasteable Markdown snippet ready for PR descriptions and Issue comments.
+- **Parallel matrix execution (`--jobs` / `jobs`)**: Concurrently runs container checks using `ThreadPoolExecutor` (defaults to `min(2, matrix_size)`), strictly preserving matrix output order and ensuring reliable container cleanup.
+- **Hardened container resource limits**: Added `--mem-limit` (default: 256m) and `--pids-limit` (default: 128) flags and Action inputs to prevent runaway resource exhaustion.
+- **Configurable network isolation (`--network`)**: Supports `--network bridge` (default) and `--network none` for offline script execution.
+- **Zero-config repository script auto-discovery**: Running `opsscript-gate run` without arguments automatically discovers and validates shell scripts in the repository, ignoring directories like `.git`, `node_modules`, and `.venv`, capped at 20 scripts and 1 MB per file.
+- **Multi-script test consolidation (`MultiScriptReport`)**: Supports aggregate reporting and Step Summary cards when multiple scripts are evaluated in a single run.
+
+### Changed
+- **Action initialization performance**: Removed redundant `pip install --upgrade pip` step in composite `action.yml` to minimize Action startup latency.
+- **Flexible Action inputs**: Made `script-path` optional in `action.yml` (triggers auto-discovery if omitted); added inputs `jobs`, `mem-limit`, `pids-limit`, and `network`.
+
+---
+
 ## [0.3.0] - 2026-09-19
 
 ### Added

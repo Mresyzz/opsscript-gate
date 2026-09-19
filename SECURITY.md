@@ -6,9 +6,9 @@ Only the latest release of **OpsScript Gate** receives security updates and bug 
 
 | Version | Supported          |
 | :---    | :---:              |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
-| < 0.1.0 | :x:                |
+| 0.4.x   | :white_check_mark: |
+| 0.3.x   | :white_check_mark: |
+| < 0.3.0 | :x:                |
 
 ---
 
@@ -34,5 +34,7 @@ OpsScript Gate is not a security sandbox for untrusted code. Containers may run 
 
 OpsScript Gate applies conservative container defaults when running scripts:
 - **Restricted Container Defaults**: Containers run with `privileged=False`, `cap_drop=["ALL"]`, and `security_opt=["no-new-privileges:true"]`.
+- **Resource Limits & Isolation**: Enforces memory caps (`--mem-limit`, default 256m), process table caps (`--pids-limit`, default 128), and optional network isolation (`--network none`).
 - **Read-Only Mounting**: Target scripts are mounted read-only (`:ro`). OpsScript Gate does not mount additional host filesystem paths into test containers.
-- **Resource Protection**: Containers are subject to timeouts and `SIGKILL` termination. Container removal is attempted from a `finally` block during normal Python execution paths, including failures and timeouts.
+- **Resource Protection & Hard Timeout**: Containers are subject to hard timeouts (default 60s) with `SIGKILL` termination. Container removal is attempted from a `finally` block in normal, failure, and timeout execution paths.
+- **Workflow Command Injection Defense**: All GitHub Actions workflow commands (`::error`) apply strict percent-encoding for properties (`%`, `\r`, `\n`, `:`, `,`) and data (`%`, `\r`, `\n`), completely preventing command injection from unclassified container output.

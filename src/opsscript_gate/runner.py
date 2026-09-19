@@ -9,9 +9,11 @@ from typing import Sequence
 import docker
 from docker.errors import DockerException, ImageNotFound
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
+from opsscript_gate.remediation import generate_remediation_hint
 
 DEFAULT_MATRIX: list[str] = [
     "debian:12-slim",
@@ -79,11 +81,17 @@ _MISSING_COMMAND_RE = re.compile(
     (?:^|(?<=[\r\n]))                                  # start of line
     \s*
     (?:
-        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)        # recognized shell interpreter name
-        (?::\s*[^:\r\n]+)?                             # optional script path within shell error
-        (?::\s*(?:line\s+\d+|\d+))?                    # optional line indicator
+        # Branch 1: Error prefix with line number
+        (?:
+            (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)    # recognized shell interpreter name
+            (?::\s*[^:\r\n]+)?                         # optional script path
+            |
+            [^:\r\n]+?                                 # or script path only
+        )
+        :\s*(?:line\s+(?P<line1>\d+)|(?P<line2>\d+))   # line indicator
         |
-        [^:\r\n]+?:\s*(?:line\s+\d+|\d+)               # script-path + line-number forms
+        # Branch 2: Shell interpreter without line number
+        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)
     )
     :\s+                                               # separator after shell-origin prefix
     (?P<cmd>['"`]?[\w./+-]+['"`]?)                     # strictly valid command identifier/path
@@ -108,6 +116,7 @@ _NON_COMMAND_TOKENS = {
 def extract_failure_diagnostic(
     output: str,
     exit_code: int | None = None,
+    distro: str | None = None,
 ) -> FailureDiagnostic | None:
     """
     Extract high-confidence structured diagnostic from container execution failure.
@@ -116,7 +125,8 @@ def extract_failure_diagnostic(
     - Requires exit_code == 127 as an essential high-confidence signal.
     - Requires matching a well-known shell 'not found' pattern in output.
     - Strictly validates command token syntax (no arbitrary text or markdown injection).
-    - Excludes numeric status codes, status/error message prefixes, path-only dots/slashes, and unclassified output.
+    - Extracts script line number if reliably present, otherwise None (never guess).
+    - Applies conservative remediation rules when a recognized pattern matches.
     - Returns None if not confidently classified as missing_command.
     """
     if exit_code != 127 or not output:
@@ -155,10 +165,22 @@ def extract_failure_diagnostic(
         if not sanitized_cmd or not _VALID_COMMAND_TOKEN_RE.match(sanitized_cmd):
             continue
 
+        line_str = m.group("line1") or m.group("line2")
+        line_num = int(line_str) if (line_str and line_str.isdigit()) else None
+
+        hint = generate_remediation_hint(
+            distro=distro,
+            command=sanitized_cmd,
+            kind="missing_command",
+        )
+
         return FailureDiagnostic(
             kind="missing_command",
             command=sanitized_cmd,
             message=f"command not found: {sanitized_cmd}",
+            line=line_num,
+            distro=distro,
+            hint=hint,
         )
 
     return None
@@ -374,10 +396,13 @@ def run_on_distro(
     poll_interval: float = 0.1,
     shell_mode: ShellMode | str = ShellMode.POSIX,
     parsed_shebang: ShebangParseResult | None = None,
+    mem_limit: str = "256m",
+    pids_limit: int = 128,
+    network: str = "bridge",
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
-    Supports posix, shebang, and auto execution modes.
+    Supports posix, shebang, and auto execution modes with strict resource limits.
     """
     try:
         mode = ShellMode(shell_mode)
@@ -526,7 +551,9 @@ def run_on_distro(
                 privileged=False,
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true"],
-                network_mode="bridge",
+                network_mode=network,
+                mem_limit=mem_limit,
+                pids_limit=pids_limit,
                 detach=True,
             )
         except ImageNotFound:
@@ -541,7 +568,9 @@ def run_on_distro(
                 privileged=False,
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true"],
-                network_mode="bridge",
+                network_mode=network,
+                mem_limit=mem_limit,
+                pids_limit=pids_limit,
                 detach=True,
             )
 
@@ -602,7 +631,7 @@ def run_on_distro(
                 error_message=None,
             )
         else:
-            diagnostic = extract_failure_diagnostic(output, exit_code=exit_code)
+            diagnostic = extract_failure_diagnostic(output, exit_code=exit_code, distro=distro)
             return SingleResult(
                 distro=distro,
                 status=DistroStatus.FAIL,
@@ -645,8 +674,16 @@ def run_matrix(
     timeout: int = DEFAULT_TIMEOUT,
     shell_mode: ShellMode | str = ShellMode.POSIX,
     client: docker.DockerClient | None = None,
+    jobs: int | None = None,
+    mem_limit: str = "256m",
+    pids_limit: int = 128,
+    network: str = "bridge",
 ) -> RunReport:
-    """Run the compatibility check across all specified Linux distributions."""
+    """
+    Run the compatibility check across all specified Linux distributions,
+    optionally running containers concurrently with ThreadPoolExecutor.
+    Results strictly preserve the original matrix order.
+    """
     try:
         mode = ShellMode(shell_mode)
     except ValueError:
@@ -661,19 +698,39 @@ def run_matrix(
     distro_list = list(matrix) if matrix else DEFAULT_MATRIX
     docker_client = client or get_docker_client()
 
-    start_total = time.perf_counter()
-    results: list[SingleResult] = []
+    effective_jobs = jobs if (jobs is not None and jobs > 0) else min(2, len(distro_list))
+    effective_jobs = max(1, effective_jobs)
 
-    for distro in distro_list:
+    start_total = time.perf_counter()
+    results: list[SingleResult] = [None] * len(distro_list)  # type: ignore
+
+    def _worker(index: int, distro_name: str) -> tuple[int, SingleResult]:
         res = run_on_distro(
             client=docker_client,
             script_path=script_path,
-            distro=distro,
+            distro=distro_name,
             timeout=timeout,
             shell_mode=shell_mode,
             parsed_shebang=parsed_shebang,
+            mem_limit=mem_limit,
+            pids_limit=pids_limit,
+            network=network,
         )
-        results.append(res)
+        return index, res
+
+    if effective_jobs == 1 or len(distro_list) <= 1:
+        for idx, distro_name in enumerate(distro_list):
+            _, res = _worker(idx, distro_name)
+            results[idx] = res
+    else:
+        with ThreadPoolExecutor(max_workers=effective_jobs) as executor:
+            futures = [
+                executor.submit(_worker, idx, distro_name)
+                for idx, distro_name in enumerate(distro_list)
+            ]
+            for fut in as_completed(futures):
+                idx, res = fut.result()
+                results[idx] = res
 
     total_duration = time.perf_counter() - start_total
     all_passed = all(r.status == DistroStatus.PASS for r in results) if results else True
@@ -683,3 +740,4 @@ def run_matrix(
         total_duration=total_duration,
         all_passed=all_passed,
     )
+
