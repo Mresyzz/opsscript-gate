@@ -150,7 +150,7 @@ sh: line 4: apt-get: not found
 | **Runtime execution** | **Yes** | No (Static AST only) | Yes |
 | **Real distro environments** | **Yes (Debian, Ubuntu, Alpine)** | No | Yes |
 | **Preconfigured defaults** | **Yes** | Yes | Requires custom workflow configuration |
-| **Safe container sandbox** | **Built-in (`ro`, `cap_drop`, resource limits)** | N/A | User-defined |
+| **Hardened container defaults** | **Built-in (`ro`, `cap_drop`, resource limits)** | N/A | User-defined |
 | **Anti-hang stdin protection** | **Built-in (`</dev/null`, noninteractive)** | No | User-defined |
 | **Line-Level Annotations & Hints** | **Built-in (Zero config)** | Static warnings | User-defined |
 | **Parallel Matrix Execution** | **Built-in (`--jobs`)** | N/A | Manual matrix config |
@@ -162,7 +162,9 @@ sh: line 4: apt-get: not found
 
 ## 🔒 Security Boundaries & Hardened Isolation
 
-OpsScript Gate is designed to run securely in continuous integration:
+OpsScript Gate is not a security sandbox for untrusted code. Containers may run as the image's default user, and Docker containers still share the host kernel.
+
+OpsScript Gate applies conservative, restricted container defaults when running scripts:
 
 1. **Restricted Container Defaults**:
    - Containers run with `privileged=False`.
@@ -179,9 +181,9 @@ OpsScript Gate is designed to run securely in continuous integration:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
    - Disconnects standard input: `/bin/sh -c "... /tmp/target_script.sh </dev/null"`.
    - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`. Interactive prompts (`read -p`) fail immediately instead of hanging CI runners.
-5. **Hard Timeout & Reliable Cleanup**:
+5. **Hard Timeout & Container Cleanup**:
    - Enforces configurable timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
-   - Container removal is guaranteed in a `finally` block during all execution paths.
+   - Container removal is attempted from a `finally` block in normal, failure, and timeout execution paths.
 6. **Command Injection Defense**:
    - Workflow commands (`::error`) apply strict percent-encoding for all properties and message bodies, preventing unclassified container logs from injecting GitHub Actions workflow commands.
 7. **Windows CRLF Defense**:

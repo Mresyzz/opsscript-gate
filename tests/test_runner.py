@@ -1204,6 +1204,10 @@ def test_format_github_annotations():
     annotations = format_github_annotations(report, script_path="scripts/deploy.sh")
     assert len(annotations) == 2
 
+    # verify leading ./ normalization
+    ann_dot_slash = format_github_annotations(report, script_path="./scripts/deploy.sh")
+    assert ann_dot_slash[0].startswith("::error file=scripts/deploy.sh,line=4,title=")
+
     # r1 should include line=4
     assert annotations[0].startswith("::error file=scripts/deploy.sh,line=4,title=")
     assert "apt-get" in annotations[0]
@@ -1398,7 +1402,14 @@ def test_script_discovery(tmp_path):
     # Ignored directory node_modules
     nm_dir = tmp_path / "node_modules"
     nm_dir.mkdir()
-    (nm_dir / "pkg.sh").write_text("#!/bin/sh\necho npm\n", encoding="utf-8")
+    # Ignored directory vendor
+    vendor_dir = tmp_path / "vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / "lib.sh").write_text("#!/bin/sh\necho vendor\n", encoding="utf-8")
+    # Ignored directory target
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "artifact.sh").write_text("#!/bin/sh\necho target\n", encoding="utf-8")
     # Empty script (should be ignored)
     (tmp_path / "empty.sh").write_text("", encoding="utf-8")
 
@@ -1412,6 +1423,8 @@ def test_script_discovery(tmp_path):
     # Ensure ignored directories are not included
     assert not any(".git" in p for p in discovered)
     assert not any("node_modules" in p for p in discovered)
+    assert not any("vendor" in p for p in discovered)
+    assert not any("target" in p for p in discovered)
     assert not any("server.py" in p for p in discovered)
 
 

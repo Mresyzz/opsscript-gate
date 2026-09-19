@@ -39,7 +39,18 @@ def format_github_annotations(report: RunReport, script_path: str = "") -> list[
     or ::error file=...,title=...::... when line number is unavailable.
     """
     annotations: list[str] = []
-    norm_script = script_path.replace("\\", "/") if script_path else "script.sh"
+    if script_path:
+        clean_path = script_path.replace("\\", "/")
+        if clean_path.startswith("./"):
+            clean_path = clean_path[2:]
+        try:
+            if os.path.isabs(clean_path):
+                clean_path = os.path.relpath(clean_path, ".").replace("\\", "/")
+        except Exception:
+            pass
+        norm_script = clean_path if clean_path else "script.sh"
+    else:
+        norm_script = "script.sh"
     escaped_file = escape_github_property(norm_script)
 
     for r in report.results:

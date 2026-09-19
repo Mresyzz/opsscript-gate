@@ -14,6 +14,8 @@ IGNORED_DIRS = {
     "env",
     "__pycache__",
     "node_modules",
+    "vendor",
+    "target",
     ".tox",
     ".nox",
     "dist",
