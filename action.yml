@@ -7,12 +7,17 @@ branding:
 
 inputs:
   script-path:
-    description: 'Path to the target shell script to test'
-    required: true
+    description: 'Path to the target shell script to test (auto-discovers repository scripts if omitted)'
+    required: false
+    default: ''
   matrix:
     description: 'Comma-separated container images to test (e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
     required: false
     default: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+  jobs:
+    description: 'Number of parallel container execution jobs (default: min(2, matrix_size))'
+    required: false
+    default: ''
   timeout:
     description: 'Hard timeout in seconds per container (default: 60)'
     required: false
@@ -25,6 +30,18 @@ inputs:
     description: "Shell execution mode: 'posix' (default), 'shebang', or 'auto'"
     required: false
     default: 'posix'
+  mem-limit:
+    description: 'Memory limit for containers (default: 256m)'
+    required: false
+    default: '256m'
+  pids-limit:
+    description: 'Maximum number of processes per container (default: 128)'
+    required: false
+    default: '128'
+  network:
+    description: "Container network mode: 'bridge' or 'none' (default: bridge)"
+    required: false
+    default: 'bridge'
 
 runs:
   using: 'composite'
@@ -37,7 +54,6 @@ runs:
     - name: Install opsscript-gate
       shell: bash
       run: |
-        python -m pip install --upgrade pip
         pip install "${{ github.action_path }}"
 
     - name: Run compatibility gate
@@ -45,18 +61,30 @@ runs:
       env:
         INPUT_SCRIPT_PATH: ${{ inputs.script-path }}
         INPUT_MATRIX: ${{ inputs.matrix }}
+        INPUT_JOBS: ${{ inputs.jobs }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_SHELL: ${{ inputs.shell }}
+        INPUT_MEM_LIMIT: ${{ inputs.mem-limit }}
+        INPUT_PIDS_LIMIT: ${{ inputs.pids-limit }}
+        INPUT_NETWORK: ${{ inputs.network }}
       run: |
-        ARGS=(
-          "run"
-          "$INPUT_SCRIPT_PATH"
+        ARGS=("run")
+        if [ -n "$INPUT_SCRIPT_PATH" ]; then
+          ARGS+=("$INPUT_SCRIPT_PATH")
+        fi
+        ARGS+=(
           "--timeout" "$INPUT_TIMEOUT"
           "--format" "$INPUT_FORMAT"
           "--shell" "$INPUT_SHELL"
+          "--mem-limit" "$INPUT_MEM_LIMIT"
+          "--pids-limit" "$INPUT_PIDS_LIMIT"
+          "--network" "$INPUT_NETWORK"
         )
         if [ -n "$INPUT_MATRIX" ]; then
           ARGS+=("--matrix" "$INPUT_MATRIX")
+        fi
+        if [ -n "$INPUT_JOBS" ]; then
+          ARGS+=("--jobs" "$INPUT_JOBS")
         fi
         python -m opsscript_gate.cli "${ARGS[@]}"

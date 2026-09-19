@@ -2,14 +2,96 @@ from __future__ import annotations
 
 import json
 import os
-from opsscript_gate.models import DistroStatus, RunReport, SingleResult
+import sys
+from opsscript_gate.models import DistroStatus, MultiScriptReport, RunReport, SingleResult
 
 
-def format_terminal_table(report: RunReport) -> str:
-    """Format the report as a clean, aligned ASCII terminal table."""
+def escape_github_property(value: str) -> str:
+    """
+    Escape property values for GitHub Actions workflow commands.
+    Escapes %, \\r, \\n, :, and ,
+    """
+    return (
+        value.replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+        .replace(":", "%3A")
+        .replace(",", "%2C")
+    )
+
+
+def escape_github_data(value: str) -> str:
+    """
+    Escape message body content for GitHub Actions workflow commands.
+    Escapes %, \\r, and \\n
+    """
+    return (
+        value.replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+
+def format_github_annotations(report: RunReport, script_path: str = "") -> list[str]:
+    """
+    Generate GitHub Actions line-level annotation commands for failures.
+    Produces ::error file=...,line=...,title=...::... when a line number is known,
+    or ::error file=...,title=...::... when line number is unavailable.
+    """
+    annotations: list[str] = []
+    norm_script = script_path.replace("\\", "/") if script_path else "script.sh"
+    escaped_file = escape_github_property(norm_script)
+
+    for r in report.results:
+        if r.status == DistroStatus.PASS:
+            continue
+
+        raw_title = f"OpsScript Gate: [{r.distro}] {r.status.value}"
+        if r.diagnostic and r.diagnostic.message:
+            raw_title = f"OpsScript Gate: [{r.distro}] {r.diagnostic.message}"
+
+        msg_parts: list[str] = []
+        if r.diagnostic:
+            msg_parts.append(r.diagnostic.message)
+            if r.diagnostic.hint:
+                msg_parts.append(r.diagnostic.hint)
+        elif r.error_message:
+            msg_parts.append(r.error_message)
+        else:
+            msg_parts.append(f"Execution failed with exit code {r.exit_code}")
+
+        raw_msg = " — ".join(msg_parts)
+        escaped_title = escape_github_property(raw_title)
+        escaped_msg = escape_github_data(raw_msg)
+
+        line_num = r.diagnostic.line if (r.diagnostic and r.diagnostic.line is not None) else None
+        if line_num is not None and line_num > 0:
+            annotations.append(
+                f"::error file={escaped_file},line={line_num},title={escaped_title}::{escaped_msg}"
+            )
+        else:
+            annotations.append(
+                f"::error file={escaped_file},title={escaped_title}::{escaped_msg}"
+            )
+
+    return annotations
+
+
+def emit_github_annotations(report: RunReport, script_path: str = "") -> None:
+    """Print annotations to stdout only when running in GitHub Actions."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        for ann in format_github_annotations(report, script_path):
+            sys.stdout.write(ann + "\n")
+        sys.stdout.flush()
+
+
+def format_terminal_table(report: RunReport, script_path: str = "") -> str:
+    """Format the report as a clean, aligned ASCII terminal table with hints."""
     headers = ["Distro", "Status", "Exit Code", "Duration", "Details"]
 
     rows: list[list[str]] = []
+    hints: list[tuple[str, str]] = []
+
     for r in report.results:
         exit_code_str = str(r.exit_code) if r.exit_code is not None else "-"
         duration_str = f"{r.duration:.2f}s"
@@ -17,7 +99,10 @@ def format_terminal_table(report: RunReport) -> str:
         if r.status == DistroStatus.PASS:
             detail = "OK"
         elif r.diagnostic:
-            detail = r.diagnostic.message
+            line_suffix = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
+            detail = f"{r.diagnostic.message}{line_suffix}"
+            if r.diagnostic.hint:
+                hints.append((r.distro, r.diagnostic.hint))
         elif r.error_message:
             detail = r.error_message
         else:
@@ -55,11 +140,15 @@ def format_terminal_table(report: RunReport) -> str:
 
     sep_line = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
 
-    lines = [
+    lines: list[str] = []
+    if script_path:
+        lines.append(f"Target: {script_path}")
+
+    lines.extend([
         sep_line,
         format_row(headers),
         sep_line,
-    ]
+    ])
     for row in rows:
         lines.append(format_row(row))
     lines.append(sep_line)
@@ -68,6 +157,12 @@ def format_terminal_table(report: RunReport) -> str:
     lines.append(
         f"Total duration: {report.total_duration:.2f}s | Result: {status_str}"
     )
+
+    # Output conservative remediation hints if any
+    if hints:
+        lines.append("\nRemediation Recommendations:")
+        for distro_name, hint_text in hints:
+            lines.append(f"  * [{distro_name}] {hint_text}")
 
     # Append output snippets for failing/timed out distros
     failed_results = [r for r in report.results if r.status != DistroStatus.PASS and r.output_snippet]
@@ -82,20 +177,43 @@ def format_terminal_table(report: RunReport) -> str:
     return "\n".join(lines)
 
 
-def format_github_summary(report: RunReport) -> str:
-    """Format the report as GitHub-flavored Markdown for Actions Step Summary."""
-    overall_badge = "✅ **ALL PASSED**" if report.all_passed else "❌ **CHECKS FAILED**"
+def format_multi_terminal_table(multi_report: MultiScriptReport) -> str:
+    """Format multiple script reports as aligned terminal tables."""
+    parts: list[str] = []
+    for script_name, report in multi_report.reports.items():
+        parts.append(format_terminal_table(report, script_path=script_name))
+        parts.append("")
+    summary_status = "ALL PASSED" if multi_report.all_passed else "SOME FAILED"
+    parts.append(f"Multi-Script Run: {len(multi_report.reports)} scripts tested | Overall: {summary_status}")
+    return "\n".join(parts)
+
+
+def format_markdown_compatibility_card(report: RunReport, script_path: str = "") -> str:
+    """
+    Format an elegant GitHub-flavored Markdown Compatibility Card.
+    Suitable for Step Summary and easily copyable into PR / Issue comments.
+    """
+    passed_count = sum(1 for r in report.results if r.status == DistroStatus.PASS)
+    total_count = len(report.results)
+    badge = (
+        f"✅ **ALL PASSED ({passed_count}/{total_count})**"
+        if report.all_passed
+        else f"❌ **CHECKS FAILED ({passed_count}/{total_count} Passed)**"
+    )
 
     lines = [
         "## 🛡️ OpsScript Gate Compatibility Report",
         "",
-        f"**Overall Status**: {overall_badge}  ",
-        f"**Total Duration**: `{report.total_duration:.2f}s`  ",
-        f"**Total Tested**: `{len(report.results)}`",
-        "",
-        "| Distro | Status | Exit Code | Duration | Message |",
-        "| :--- | :---: | :---: | :---: | :--- |",
     ]
+    if script_path:
+        lines.append(f"**Target Script**: `{script_path}`  ")
+    lines.append(f"**Status**: {badge}  ")
+    lines.append(f"**Total Duration**: `{report.total_duration:.2f}s`")
+    lines.append("")
+    lines.append("### 📊 Compatibility Matrix")
+    lines.append("")
+    lines.append("| Distribution | Status | Exit Code | Time | Diagnostic & Recommendation |")
+    lines.append("| :--- | :---: | :---: | :---: | :--- |")
 
     for r in report.results:
         if r.status == DistroStatus.PASS:
@@ -109,21 +227,51 @@ def format_github_summary(report: RunReport) -> str:
 
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
-        if r.status == DistroStatus.PASS:
-            msg = "OK"
-        elif r.diagnostic:
-            msg = r.diagnostic.message
-        else:
-            msg = r.error_message or "-"
-        msg_escaped = msg.replace("|", "\\|")
 
+        diag_cell = "OK"
+        if r.diagnostic:
+            line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
+            clean_cmd = f"`{r.diagnostic.command}`" if r.diagnostic.command else "command"
+            diag_cell = f"⚠️ Missing command: {clean_cmd}{line_str}"
+            if r.diagnostic.hint:
+                diag_cell += f"<br>💡 *{r.diagnostic.hint}*"
+        elif r.error_message:
+            diag_cell = r.error_message
+        elif r.status != DistroStatus.PASS:
+            diag_cell = f"Non-zero exit code: {r.exit_code}"
+
+        diag_cell_escaped = diag_cell.replace("|", "\\|")
         lines.append(
-            f"| `{r.distro}` | {status_icon} | {exit_code_str} | {duration_str} | {msg_escaped} |"
+            f"| `{r.distro}` | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell_escaped} |"
         )
 
     lines.append("")
 
-    # Expandable details for any failures or timeouts
+    # Expandable Copy-to-PR block
+    lines.append("<details>")
+    lines.append("<summary>📋 <b>Copyable Markdown (Click to expand & copy to PR / Issue)</b></summary>")
+    lines.append("")
+    lines.append("```markdown")
+    lines.append(f"### 🛡️ OpsScript Gate: {passed_count}/{total_count} Passed (`{script_path or 'target'}`)")
+    lines.append("| Distribution | Status | Time | Details |")
+    lines.append("| :--- | :---: | :---: | :--- |")
+    for r in report.results:
+        icon = "✅" if r.status == DistroStatus.PASS else "❌"
+        detail = "OK"
+        if r.diagnostic:
+            detail = f"Missing `{r.diagnostic.command}`"
+            if r.diagnostic.line:
+                detail += f" (L{r.diagnostic.line})"
+            if r.diagnostic.hint:
+                detail += f" — *{r.diagnostic.hint}*"
+        elif r.error_message:
+            detail = r.error_message
+        lines.append(f"| `{r.distro}` | {icon} {r.status.value} | `{r.duration:.2f}s` | {detail} |")
+    lines.append("```")
+    lines.append("</details>")
+    lines.append("")
+
+    # Failure diagnostic details with log snippets
     failures = [r for r in report.results if r.status != DistroStatus.PASS]
     if failures:
         lines.append("### 🔍 Failure Diagnostic Logs")
@@ -133,7 +281,10 @@ def format_github_summary(report: RunReport) -> str:
             if r.diagnostic:
                 clean_kind = r.diagnostic.kind.replace("`", "'")
                 clean_msg = r.diagnostic.message.replace("`", "'")
-                lines.append(f"> **Diagnostic:** `{clean_kind}` — `{clean_msg}`")
+                line_info = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
+                lines.append(f"> **Diagnostic:** `{clean_kind}` — `{clean_msg}`{line_info}")
+                if r.diagnostic.hint:
+                    lines.append(f"> 💡 **Recommendation:** {r.diagnostic.hint}")
                 lines.append("")
             if r.error_message:
                 lines.append(f"> **Error:** {r.error_message}")
@@ -150,21 +301,57 @@ def format_github_summary(report: RunReport) -> str:
     return "\n".join(lines)
 
 
-def format_json(report: RunReport) -> str:
+def format_github_summary(report: RunReport, script_path: str = "") -> str:
+    """Format report as GitHub Actions Step Summary markdown."""
+    return format_markdown_compatibility_card(report, script_path=script_path)
+
+
+def format_multi_github_summary(multi_report: MultiScriptReport) -> str:
+    """Format multiple script reports into a consolidated GitHub Step Summary."""
+    passed_scripts = sum(1 for r in multi_report.reports.values() if r.all_passed)
+    total_scripts = len(multi_report.reports)
+    badge = f"✅ **{passed_scripts} / {total_scripts} Scripts Passed**" if multi_report.all_passed else f"❌ **{passed_scripts} / {total_scripts} Scripts Passed**"
+
+    lines = [
+        "## 🛡️ OpsScript Gate Multi-Script Compatibility Report",
+        "",
+        f"**Summary**: {badge}  ",
+        f"**Total Duration**: `{multi_report.total_duration:.2f}s`",
+        "",
+    ]
+
+    for script_name, report in multi_report.reports.items():
+        card = format_markdown_compatibility_card(report, script_path=script_name)
+        lines.append(card)
+        lines.append("\n---\n")
+
+    return "\n".join(lines)
+
+
+def format_json(report: RunReport | MultiScriptReport) -> str:
     """Format the report as structured JSON."""
     return json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
 
 
-def write_github_step_summary(report: RunReport) -> bool:
+def write_github_step_summary(
+    report_or_content: RunReport | MultiScriptReport | str,
+    script_path: str = "",
+) -> bool:
     """Write markdown report to $GITHUB_STEP_SUMMARY if present in environment."""
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return False
 
     try:
-        markdown_content = format_github_summary(report)
+        if isinstance(report_or_content, str):
+            content = report_or_content
+        elif isinstance(report_or_content, MultiScriptReport):
+            content = format_multi_github_summary(report_or_content)
+        else:
+            content = format_github_summary(report_or_content, script_path=script_path)
+
         with open(summary_path, "a", encoding="utf-8") as f:
-            f.write("\n" + markdown_content + "\n")
+            f.write("\n" + content + "\n")
         return True
     except Exception:
         return False
