@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.1] - 2026-09-19
 
 ### Fixed & Hardened
-- **Bounded container log capture**: Stream-captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), eliminating runner memory exhaustion risks from runaway output.
+- **Bounded container log capture**: Stream-captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), bounding retained container log data to reduce memory-exhaustion risk from runaway output.
 - **Workflow command neutralization**: Neutralizes untrusted container logs starting with `::` into `[container] ::` to prevent malicious scripts from forging GitHub Actions workflow commands in Runner consoles, while keeping OpsScript Gate's own annotations intact.
 - **Terminal ANSI and control character sanitization**: Strips ANSI escape sequences (CSI, OSC, 2-byte escapes), removes dangerous C0 control characters and DEL, and normalizes CRLF and standalone carriage returns (`\r`) to defeat terminal line overwrite and status spoofing, while preserving printable Unicode.
 - **Context-sensitive Markdown and HTML injection defense**: Implemented dedicated escaping (`escape_inline_code`, `escape_markdown_text`, `escape_markdown_table_cell`, `escape_html_text`, `format_safe_code_fence`) to prevent table cell tearing, HTML container breakout (`</details>`), premature code fence closure, and structural Markdown injection from runtime-derived values.

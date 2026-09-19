@@ -49,11 +49,19 @@ def escape_markdown_text(text: str) -> str:
 def escape_markdown_table_cell(text: str) -> str:
     """
     Escape content for safe inclusion in Markdown table cells.
-    Replaces newlines with spaces and escapes pipe characters.
+    Replaces newlines with spaces, escapes pipe characters,
+    and neutralizes HTML details/summary container tags to prevent breaking summary layout.
     """
     if not text:
         return ""
     cleaned = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    # Neutralize details/summary tags that could break surrounding HTML layout
+    cleaned = (
+        cleaned.replace("</details>", "<\\/details>")
+        .replace("<details>", "<\\details>")
+        .replace("</summary>", "<\\/summary>")
+        .replace("<summary>", "<\\summary>")
+    )
     return cleaned.replace("|", "\\|")
 
 
@@ -330,29 +338,28 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         else:
             status_icon = "⚠️ ERROR"
 
-        safe_distro = escape_inline_code(r.distro)
+        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(r.distro)}`")
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
 
         if r.status == DistroStatus.PASS:
-            diag_cell = "OK"
+            raw_diag = "OK"
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
-            diag_cell = f"⚠️ Missing command: {clean_cmd}{line_str}"
+            raw_diag = f"⚠️ Missing command: {clean_cmd}{line_str}"
             if r.diagnostic.hint:
-                safe_hint = escape_markdown_table_cell(r.diagnostic.hint)
-                diag_cell += f"<br>💡 *{safe_hint}*"
+                raw_diag += f"<br>💡 *{r.diagnostic.hint}*"
         elif r.error_message:
-            diag_cell = escape_markdown_table_cell(r.error_message)
+            raw_diag = r.error_message
         elif r.status != DistroStatus.PASS:
-            diag_cell = f"Non-zero exit code: {r.exit_code}"
+            raw_diag = f"Non-zero exit code: {r.exit_code}"
         else:
-            diag_cell = "-"
+            raw_diag = "-"
 
-        diag_cell_escaped = escape_markdown_table_cell(diag_cell)
+        diag_cell = escape_markdown_table_cell(raw_diag)
         lines.append(
-            f"| `{safe_distro}` | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell_escaped} |"
+            f"| {distro_cell} | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell} |"
         )
 
     lines.append("")
@@ -361,31 +368,33 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     lines.append("<details>")
     lines.append("<summary>📋 <b>Copyable Markdown (Click to expand & copy to PR / Issue)</b></summary>")
     lines.append("")
-    lines.append("```markdown")
     safe_copy_target = escape_inline_code(script_path or "target")
-    lines.append(f"### 🛡️ OpsScript Gate: {passed_count}/{total_count} Passed (`{safe_copy_target}`)")
-    lines.append("| Distribution | Status | Time | Details |")
-    lines.append("| :--- | :---: | :---: | :--- |")
+    copy_lines = [
+        f"### 🛡️ OpsScript Gate: {passed_count}/{total_count} Passed (`{safe_copy_target}`)",
+        "| Distribution | Status | Time | Details |",
+        "| :--- | :---: | :---: | :--- |",
+    ]
     for r in report.results:
         icon = "✅" if r.status == DistroStatus.PASS else "❌"
-        safe_copy_distro = escape_inline_code(r.distro)
+        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(r.distro)}`")
         if r.status == DistroStatus.PASS:
-            detail = "OK"
+            raw_detail = "OK"
         elif r.diagnostic:
             safe_cmd = escape_inline_code(r.diagnostic.command or "")
-            detail = f"Missing `{safe_cmd}`"
+            raw_detail = f"Missing `{safe_cmd}`"
             if r.diagnostic.line:
-                detail += f" (L{r.diagnostic.line})"
+                raw_detail += f" (L{r.diagnostic.line})"
             if r.diagnostic.hint:
-                safe_hint = escape_markdown_table_cell(r.diagnostic.hint)
-                detail += f" — *{safe_hint}*"
+                raw_detail += f" — *{r.diagnostic.hint}*"
         elif r.error_message:
-            detail = escape_markdown_table_cell(r.error_message)
+            raw_detail = r.error_message
         else:
-            detail = "-"
-        safe_detail = escape_markdown_table_cell(detail)
-        lines.append(f"| `{safe_copy_distro}` | {icon} {r.status.value} | `{r.duration:.2f}s` | {safe_detail} |")
-    lines.append("```")
+            raw_detail = "-"
+        detail_cell = escape_markdown_table_cell(raw_detail)
+        copy_lines.append(f"| {distro_cell} | {icon} {r.status.value} | `{r.duration:.2f}s` | {detail_cell} |")
+
+    copy_content = "\n".join(copy_lines)
+    lines.extend(format_safe_code_fence(copy_content, language="markdown"))
     lines.append("</details>")
     lines.append("")
 

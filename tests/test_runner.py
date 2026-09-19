@@ -1503,6 +1503,7 @@ def test_cli_auto_discovery_execution(tmp_path, monkeypatch):
 # ==============================================================================
 
 from pathlib import Path
+import re
 from opsscript_gate.runner import (
     MAX_CAPTURED_LOG_BYTES,
     MAX_LOG_TAIL_LINES,
@@ -1547,19 +1548,27 @@ def test_collect_container_logs_bounded_rolling_buffer():
 
 
 def test_collect_container_logs_fallback_handling():
-    """Verify fallback path also strictly respects the byte cap and does not error."""
-    class MockFallbackContainer:
-        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
-            if stream:
-                raise RuntimeError("stream not supported")
-            # Returns an oversized static byte payload
-            return b"START " + (b"A" * (MAX_CAPTURED_LOG_BYTES + 5000)) + b" END"
+    """Verify failure during streaming returns bounded partial data or empty string without non-streaming calls."""
+    class MockFailingContainer:
+        def __init__(self):
+            self.non_streaming_called = False
 
-    container = MockFallbackContainer()
+        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
+            if not stream:
+                self.non_streaming_called = True
+                return b"SHOULD_NOT_BE_CALLED"
+            # Generator that yields one chunk then fails
+            def _stream():
+                yield "PARTIAL_LOG"
+                raise RuntimeError("connection aborted")
+            return _stream()
+
+    container = MockFailingContainer()
     result = collect_container_logs(container, max_bytes=MAX_CAPTURED_LOG_BYTES)
-    assert len(result.encode("utf-8")) <= MAX_CAPTURED_LOG_BYTES
-    assert result.endswith("END")
-    assert not result.startswith("START")
+    # Must return already captured bounded partial data
+    assert result == "PARTIAL_LOG"
+    # Must NOT issue a non-streaming logs call
+    assert container.non_streaming_called is False
 
 
 def test_sanitize_log_output_neutralizes_workflow_commands():
@@ -1631,7 +1640,7 @@ def test_sanitize_log_output_ansi_and_control_chars():
     assert "\r" not in sanitized
     assert "Tabs\tand Newlines\nare preserved." in sanitized
     assert "Unicode: 成功 ✅ 日本語" in sanitized
-    assert "Title Hijack" not in sanitized or "Title Hijack" in sanitized  # OSC sequence stripped
+    assert "Title Hijack" not in sanitized
     assert "Red Alert" in sanitized
 
 
@@ -1748,7 +1757,7 @@ def test_reporter_rendering_adversarial_payloads():
     summary_md = format_markdown_compatibility_card(report, script_path="hack`script.sh|")
 
     # Table structure remains intact (no raw unescaped pipes breaking the row)
-    assert "`hack'script.sh|`" in summary_md or "\\|" in summary_md
+    assert "`hack'script.sh\\|`" in summary_md or "\\|" in summary_md
     assert "<\\/details>" in summary_md
     assert "</details></details>" not in summary_md
     assert "\\[Fake Link\\]\\(http://evil.com\\)" in summary_md or "Fake Link" in summary_md
@@ -1812,14 +1821,19 @@ def test_get_docker_client_generic_exception():
         assert "Unexpected error connecting to Docker daemon" in str(exc_info.value)
 
 
-def test_cli_main_unexpected_exception(monkeypatch):
+def test_cli_main_unexpected_exception(tmp_path, monkeypatch, capsys):
     """Verify CLI main gracefully catches unexpected exceptions and returns code 1."""
-    monkeypatch.setattr(
-        "opsscript_gate.cli.run_matrix",
-        mock.Mock(side_effect=RuntimeError("Unexpected matrix crash")),
-    )
-    exit_code = main(["run", "test.sh"])
+    real_script = tmp_path / "valid.sh"
+    real_script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    mock_rm = mock.Mock(side_effect=RuntimeError("Unexpected matrix crash"))
+    monkeypatch.setattr("opsscript_gate.cli.run_matrix", mock_rm)
+
+    exit_code = main(["run", str(real_script)])
     assert exit_code == 1
+    mock_rm.assert_called_once()
+    captured = capsys.readouterr()
+    assert "Unexpected Error" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_cli_parser_defaults():
@@ -1835,3 +1849,98 @@ def test_cli_parser_defaults():
     assert args.pids_limit == 128
     assert args.network == "bridge"
 
+
+def test_collect_container_logs_single_giant_chunk():
+    """Verify a single chunk larger than max_bytes is sliced before extending the buffer."""
+    giant_chunk = ("A" * (MAX_CAPTURED_LOG_BYTES + 10000)) + "TAIL_DATA"
+
+    class MockGiantChunkContainer:
+        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
+            assert stream is True
+            yield giant_chunk
+
+    container = MockGiantChunkContainer()
+    result = collect_container_logs(container, max_bytes=MAX_CAPTURED_LOG_BYTES)
+
+    assert len(result.encode("utf-8")) == MAX_CAPTURED_LOG_BYTES
+    assert result.endswith("TAIL_DATA")
+    assert result == giant_chunk[-MAX_CAPTURED_LOG_BYTES:]
+
+
+def test_reporter_copyable_markdown_fence_injection():
+    """Verify Copyable Markdown handles payloads attempting to break out of code fence or details."""
+    evil_payload = "FAKE PASS\n</details> ```\n```markdown\nInjected markdown"
+    res = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=1,
+        duration=0.2,
+        error_message=evil_payload,
+    )
+    report = RunReport(results=[res], total_duration=0.2)
+    summary_md = format_markdown_compatibility_card(report, "test.sh")
+
+    # Must NOT contain an unescaped </details> inside the copyable block that closes the outer details
+    assert "<\\/details>" in summary_md
+    # All raw </details> occurrences in the summary must be legitimate HTML container closures (exactly 2)
+    raw_details_close = [m.start() for m in re.finditer(r"(?<!\\)</details>", summary_md)]
+    assert len(raw_details_close) == 2, f"Unescaped closing tag found in summary: {summary_md}"
+    # Code fence should dynamically scale to at least 4 backticks
+    assert "````markdown" in summary_md or "`````markdown" in summary_md
+
+
+def test_reporter_distro_cell_escaping():
+    """Verify distro names containing pipe characters do not split GFM table cells."""
+    distro_with_pipe = "ubuntu:24.04|FAKE"
+    res = SingleResult(
+        distro=distro_with_pipe,
+        status=DistroStatus.PASS,
+        exit_code=0,
+        duration=0.3,
+    )
+    report = RunReport(results=[res], total_duration=0.3)
+    card = format_markdown_compatibility_card(report, "test.sh")
+
+    # Find all rows matching the distro name
+    matching_rows = [line for line in card.splitlines() if "ubuntu:24.04" in line]
+    assert len(matching_rows) == 2, f"Expected 2 matching rows (matrix and copyable), got: {matching_rows}"
+
+    # Row 1: compatibility matrix table row (5 columns -> 6 delimiters)
+    matrix_row = matching_rows[0]
+    matrix_delims = [ch for i, ch in enumerate(matrix_row) if ch == "|" and (i == 0 or matrix_row[i-1] != "\\")]
+    assert len(matrix_delims) == 6, f"Matrix table row was split by unescaped pipe: {matrix_row}"
+    assert "`ubuntu:24.04\\|FAKE`" in matrix_row
+
+    # Row 2: copyable markdown matrix row (4 columns -> 5 delimiters)
+    copy_row = matching_rows[1]
+    copy_delims = [ch for i, ch in enumerate(copy_row) if ch == "|" and (i == 0 or copy_row[i-1] != "\\")]
+    assert len(copy_delims) == 5, f"Copyable table row was split by unescaped pipe: {copy_row}"
+    assert "`ubuntu:24.04\\|FAKE`" in copy_row
+
+
+def test_run_matrix_prepare_script_failure_semantics(tmp_path):
+    """Verify prepare_script failure surfaces ERROR for all distros and does not run Docker."""
+    script_path = tmp_path / "protected.sh"
+    script_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    mock_docker_client = mock.MagicMock()
+
+    with mock.patch("opsscript_gate.runner.prepare_script", side_effect=PermissionError("Cannot read script")):
+        report = run_matrix(
+            script_path=str(script_path),
+            matrix=["debian:12-slim", "alpine:3.20"],
+            client=mock_docker_client,
+        )
+
+    # Assert no Docker containers created
+    mock_docker_client.containers.create.assert_not_called()
+    assert report.all_passed is False
+    assert len(report.results) == 2
+    for r in report.results:
+        assert r.status == DistroStatus.ERROR
+        assert "Failed to read/prepare script: Cannot read script" in (r.error_message or "")
+
+    # Verify CLI returns 1 on this failure
+    with mock.patch("opsscript_gate.runner.prepare_script", side_effect=PermissionError("Cannot read script")):
+        exit_code = main(["run", str(script_path)])
+        assert exit_code == 1

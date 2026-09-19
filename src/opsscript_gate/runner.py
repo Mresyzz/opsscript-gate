@@ -492,25 +492,29 @@ def collect_container_logs(
 ) -> str:
     """
     Safely capture logs from container with tail-line and byte-size bounds using a true
-    rolling byte buffer. Guarantees memory usage is strictly bounded at every step.
+    bounded rolling byte buffer. Guarantees retained memory never exceeds max_bytes at any step.
+    Does not issue non-streaming fallback to prevent unbounded line allocations.
     """
+    buffer = bytearray()
     try:
-        # Request bounded tail lines from daemon via stream
         raw = container.logs(stdout=True, stderr=True, tail=tail_lines, stream=True)
         if hasattr(raw, "__iter__") and not isinstance(raw, (bytes, str, bytearray)):
-            buffer = bytearray()
             for chunk in raw:
                 if isinstance(chunk, str):
                     chunk = chunk.encode("utf-8", errors="replace")
                 if not isinstance(chunk, (bytes, bytearray)):
                     continue
-                buffer.extend(chunk)
-                if len(buffer) > max_bytes:
-                    # Rolling buffer: strictly drop bytes older than max_bytes immediately
-                    del buffer[:-max_bytes]
+                if len(chunk) >= max_bytes:
+                    buffer.clear()
+                    buffer.extend(chunk[-max_bytes:])
+                else:
+                    overflow = len(buffer) + len(chunk) - max_bytes
+                    if overflow > 0:
+                        del buffer[:overflow]
+                    buffer.extend(chunk)
             return buffer.decode("utf-8", errors="replace")
         else:
-            # Fallback if logs returned full string or bytes
+            # If logs returned a static payload instead of a generator (e.g. mocked stream)
             if isinstance(raw, str):
                 raw_bytes = raw.encode("utf-8", errors="replace")
             elif isinstance(raw, (bytes, bytearray)):
@@ -521,20 +525,11 @@ def collect_container_logs(
                 raw_bytes = raw_bytes[-max_bytes:]
             return raw_bytes.decode("utf-8", errors="replace")
     except Exception:
-        # Fallback to non-streaming logs with tail limit; bounded immediately
-        try:
-            raw = container.logs(stdout=True, stderr=True, tail=tail_lines)
-            if isinstance(raw, str):
-                raw_bytes = raw.encode("utf-8", errors="replace")
-            elif isinstance(raw, (bytes, bytearray)):
-                raw_bytes = bytes(raw)
-            else:
-                raw_bytes = str(raw).encode("utf-8", errors="replace")
-            if len(raw_bytes) > max_bytes:
-                raw_bytes = raw_bytes[-max_bytes:]
-            return raw_bytes.decode("utf-8", errors="replace")
-        except Exception:
-            return ""
+        # If streaming log retrieval fails, return already captured bounded partial data, or empty string.
+        # Do NOT issue another non-streaming container.logs() call.
+        if buffer:
+            return buffer.decode("utf-8", errors="replace")
+        return ""
 
 
 def _resolve_shell_command(
@@ -833,8 +828,22 @@ def run_matrix(
     if os.path.isfile(abs_script):
         try:
             prepared_script, shared_temp_file = prepare_script(abs_script)
-        except Exception:
-            prepared_script = abs_script
+        except Exception as exc:
+            return RunReport(
+                results=[
+                    SingleResult(
+                        distro=d,
+                        status=DistroStatus.ERROR,
+                        exit_code=None,
+                        duration=0.0,
+                        output_snippet="",
+                        error_message=f"Failed to read/prepare script: {exc}",
+                    )
+                    for d in distro_list
+                ],
+                total_duration=0.0,
+                all_passed=False,
+            )
 
     start_total = time.perf_counter()
     results: list[SingleResult] = [None] * len(distro_list)  # type: ignore

@@ -183,9 +183,9 @@ OpsScript Gate applies conservative, restricted container defaults when running 
    - Injects `DEBIAN_FRONTEND=noninteractive` and `CI=true`. Interactive prompts (`read -p`) fail immediately instead of hanging CI runners.
 5. **Hard Timeout & Container Cleanup**:
    - Enforces configurable timeout (default: 60s). Timed-out containers are sent `SIGKILL` and marked `TIMED_OUT`.
-   - Container removal is performed in a `finally` block across normal, failure, and timeout execution paths.
+   - Container removal is attempted from a `finally` block in normal, failure, and timeout execution paths.
 6. **Bounded Output & Memory Protection**:
-   - Captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), eliminating runner memory exhaustion.
+   - Captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), which bounds retained container log data to reduce memory-exhaustion risk.
 7. **Untrusted Log Neutralization & Terminal Defense**:
    - Neutralizes line-leading workflow commands (`[container] ::`) to prevent forged GitHub Actions annotations in CI runners.
    - Strips ANSI escape sequences and dangerous C0 control characters, and normalizes carriage returns (`\r`) to defeat terminal line overwrite spoofing.
