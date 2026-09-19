@@ -16,6 +16,8 @@ def format_terminal_table(report: RunReport) -> str:
 
         if r.status == DistroStatus.PASS:
             detail = "OK"
+        elif r.diagnostic:
+            detail = r.diagnostic.message
         elif r.error_message:
             detail = r.error_message
         else:
@@ -107,7 +109,12 @@ def format_github_summary(report: RunReport) -> str:
 
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
-        msg = r.error_message or "-"
+        if r.status == DistroStatus.PASS:
+            msg = "OK"
+        elif r.diagnostic:
+            msg = r.diagnostic.message
+        else:
+            msg = r.error_message or "-"
         msg_escaped = msg.replace("|", "\\|")
 
         lines.append(
@@ -123,6 +130,11 @@ def format_github_summary(report: RunReport) -> str:
         for r in failures:
             lines.append(f"<details><summary><b>[{r.status.value}] {r.distro}</b></summary>")
             lines.append("")
+            if r.diagnostic:
+                clean_kind = r.diagnostic.kind.replace("`", "'")
+                clean_msg = r.diagnostic.message.replace("`", "'")
+                lines.append(f"> **Diagnostic:** `{clean_kind}` — `{clean_msg}`")
+                lines.append("")
             if r.error_message:
                 lines.append(f"> **Error:** {r.error_message}")
                 lines.append("")

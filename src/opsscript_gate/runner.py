@@ -11,7 +11,7 @@ from docker.errors import DockerException, ImageNotFound
 
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.models import DistroStatus, RunReport, ShellMode, SingleResult
+from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 
 DEFAULT_MATRIX: list[str] = [
     "debian:12-slim",
@@ -65,6 +65,103 @@ def sanitize_diagnostic_text(text: str, max_length: int = 200) -> str:
             return sanitized[:max_length]
         return sanitized[: max_length - 3] + "..."
     return sanitized
+
+
+# Conservative regular expression matching recognized shell-origin 'not found' error patterns:
+# Examples:
+#   - BusyBox ash: "sh: line 4: apt-get: not found", "sh: curl: not found", "/bin/sh: ...: not found"
+#   - Debian dash: "dash: 1: curl: not found", "sh: 1: curl: not found"
+#   - Bash: "bash: line 4: foo: command not found", "bash: foo: command not found"
+#   - /bin/sh: "/bin/sh: line 1: /usr/bin/bash: not found", "/bin/sh: curl: not found"
+#   - script-path + line-number forms: "/tmp/target_script.sh: line 4: curl: not found", "test.sh: 4: curl: not found"
+_MISSING_COMMAND_RE = re.compile(
+    r"""
+    (?:^|(?<=[\r\n]))                                  # start of line
+    \s*
+    (?:
+        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)        # recognized shell interpreter name
+        (?::\s*[^:\r\n]+)?                             # optional script path within shell error
+        (?::\s*(?:line\s+\d+|\d+))?                    # optional line indicator
+        |
+        [^:\r\n]+?:\s*(?:line\s+\d+|\d+)               # script-path + line-number forms
+    )
+    :\s+                                               # separator after shell-origin prefix
+    (?P<cmd>['"`]?[\w./+-]+['"`]?)                     # strictly valid command identifier/path
+    :\s+                                               # colon separator
+    (?:command\s+not\s+found|not\s+found)              # missing command indicator
+    \s*(?=$|[\r\n])                                    # end of line
+    """,
+    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
+)
+
+# Strict whitelist for extracted command token validation (alphanumerics, Unicode words, dots, dashes, slashes):
+_VALID_COMMAND_TOKEN_RE = re.compile(r"^[\w./+-]+$")
+
+# Common status, protocol, and message prefixes that must never be classified as missing commands:
+_NON_COMMAND_TOKENS = {
+    "status", "error", "warning", "info", "notice", "message",
+    "file", "directory", "entry", "key", "value", "user", "record",
+    "http", "https", "response", "request", "server", "client",
+}
+
+
+def extract_failure_diagnostic(
+    output: str,
+    exit_code: int | None = None,
+) -> FailureDiagnostic | None:
+    """
+    Extract high-confidence structured diagnostic from container execution failure.
+
+    Deliberately conservative (prefer false negatives over false positives):
+    - Requires exit_code == 127 as an essential high-confidence signal.
+    - Requires matching a well-known shell 'not found' pattern in output.
+    - Strictly validates command token syntax (no arbitrary text or markdown injection).
+    - Excludes numeric status codes, status/error message prefixes, path-only dots/slashes, and unclassified output.
+    - Returns None if not confidently classified as missing_command.
+    """
+    if exit_code != 127 or not output:
+        return None
+
+    # Strip ANSI escape sequences first
+    cleaned_output = _ANSI_ESCAPE_RE.sub("", output)
+
+    for line in cleaned_output.splitlines():
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+
+        m = _MISSING_COMMAND_RE.search(line_clean)
+        if not m:
+            continue
+
+        raw_cmd = m.group("cmd").strip("'\"`")
+        if not raw_cmd or raw_cmd.isdigit():
+            continue
+
+        # Disallow pure dot/slash sequences
+        if raw_cmd in (".", "..", "/", "//"):
+            continue
+
+        # Exclude common non-command tokens and protocol prefixes (e.g. Status, Error, HTTP/1.1)
+        lowered = raw_cmd.lower()
+        if lowered in _NON_COMMAND_TOKENS or lowered.split("/")[0] in _NON_COMMAND_TOKENS:
+            continue
+
+        # Validate against strict conservative grammar
+        if not _VALID_COMMAND_TOKEN_RE.match(raw_cmd):
+            continue
+
+        sanitized_cmd = sanitize_diagnostic_text(raw_cmd, max_length=100)
+        if not sanitized_cmd or not _VALID_COMMAND_TOKEN_RE.match(sanitized_cmd):
+            continue
+
+        return FailureDiagnostic(
+            kind="missing_command",
+            command=sanitized_cmd,
+            message=f"command not found: {sanitized_cmd}",
+        )
+
+    return None
 
 
 class ShebangStatus(str, Enum):
@@ -505,6 +602,7 @@ def run_on_distro(
                 error_message=None,
             )
         else:
+            diagnostic = extract_failure_diagnostic(output, exit_code=exit_code)
             return SingleResult(
                 distro=distro,
                 status=DistroStatus.FAIL,
@@ -512,6 +610,7 @@ def run_on_distro(
                 duration=duration,
                 output_snippet=extract_snippet(output),
                 error_message=f"Script failed with non-zero exit code: {exit_code}",
+                diagnostic=diagnostic,
             )
 
     except Exception as exc:

@@ -9,7 +9,7 @@ import pytest
 from docker.errors import DockerException
 
 from opsscript_gate.cli import build_parser, main, parse_matrix_argument
-from opsscript_gate.models import DistroStatus, RunReport, ShellMode, SingleResult
+from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.reporter import (
     format_github_summary,
     format_json,
@@ -24,6 +24,7 @@ from opsscript_gate.runner import (
     DockerDaemonError,
     ShebangParseResult,
     ShebangStatus,
+    extract_failure_diagnostic,
     extract_snippet,
     get_docker_client,
     inspect_shebang,
@@ -368,7 +369,7 @@ def test_cli_version(capsys):
         main(["--version"])
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert "0.2.1" in captured.out
+    assert "0.3.0" in captured.out
 
 
 def test_cli_format_markdown_and_table(tmp_path, capsys):
@@ -869,6 +870,9 @@ def test_integration_fail_deps_alpine():
     assert report.all_passed is False
     assert report.results[0].status == DistroStatus.FAIL
     assert report.results[0].exit_code == 127
+    assert report.results[0].diagnostic is not None
+    assert report.results[0].diagnostic.kind == "missing_command"
+    assert report.results[0].diagnostic.command == "apt-get"
 
 
 @pytest.mark.integration
@@ -883,3 +887,245 @@ def test_integration_missing_bash_alpine(tmp_path):
     assert report.results[0].status == DistroStatus.FAIL
     assert report.results[0].exit_code == 127
     assert "not found" in (report.results[0].output_snippet or "").lower()
+    assert report.results[0].diagnostic is not None
+    assert report.results[0].diagnostic.kind == "missing_command"
+    assert report.results[0].diagnostic.command == "/bin/bash"
+
+
+# ==============================================================================
+# 7. Runtime Failure Diagnostics Tests
+# ==============================================================================
+
+def test_extract_failure_diagnostic_positive_variants():
+    # Alpine-style
+    diag1 = extract_failure_diagnostic("/tmp/target_script.sh: line 4: apt-get: not found", exit_code=127)
+    assert diag1 is not None
+    assert diag1.kind == "missing_command"
+    assert diag1.command == "apt-get"
+    assert diag1.message == "command not found: apt-get"
+
+    # Debian/Ubuntu dash style
+    diag2 = extract_failure_diagnostic("/tmp/target_script.sh: 4: curl: not found", exit_code=127)
+    assert diag2 is not None
+    assert diag2.command == "curl"
+    assert diag2.message == "command not found: curl"
+
+    # Bash style with underscores
+    diag3 = extract_failure_diagnostic("bash: line 4: foo_bar: command not found", exit_code=127)
+    assert diag3 is not None
+    assert diag3.command == "foo_bar"
+    assert diag3.message == "command not found: foo_bar"
+
+    # Ash style direct command
+    diag4 = extract_failure_diagnostic("sh: apt-get: not found", exit_code=127)
+    assert diag4 is not None
+    assert diag4.command == "apt-get"
+
+    # Missing interpreter path
+    diag5 = extract_failure_diagnostic("/bin/sh: line 1: /usr/bin/bash: not found", exit_code=127)
+    assert diag5 is not None
+    assert diag5.command == "/usr/bin/bash"
+    assert diag5.message == "command not found: /usr/bin/bash"
+
+    # Versioned command
+    diag6 = extract_failure_diagnostic("sh: python3.12: not found", exit_code=127)
+    assert diag6 is not None
+    assert diag6.command == "python3.12"
+
+    # Single-quoted and double-quoted variants
+    diag7 = extract_failure_diagnostic("bash: 'my-cmd': command not found", exit_code=127)
+    assert diag7 is not None
+    assert diag7.command == "my-cmd"
+
+    diag8 = extract_failure_diagnostic('sh: "my-cmd": not found', exit_code=127)
+    assert diag8 is not None
+    assert diag8.command == "my-cmd"
+
+    # Multi-line output selects first missing command
+    multiline = "Step 1\nsh: line 2: curl: not found\nsh: line 3: jq: not found\nDone"
+    diag9 = extract_failure_diagnostic(multiline, exit_code=127)
+    assert diag9 is not None
+    assert diag9.command == "curl"
+
+
+def test_extract_failure_diagnostic_negative_rules():
+    # Bare exit 127 with no matching shell output
+    assert extract_failure_diagnostic("Process terminated with 127", exit_code=127) is None
+    assert extract_failure_diagnostic("", exit_code=127) is None
+    assert extract_failure_diagnostic("Unknown fatal error", exit_code=127) is None
+
+    # Application output with arbitrary prefixes or missing shell-origin format
+    assert extract_failure_diagnostic("Error: apt-get: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("myapp: plugin: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("apt-get: not found", exit_code=127) is None
+
+    # Matching output but exit code != 127 (e.g. exit 1 or 2)
+    assert extract_failure_diagnostic("bash: foo: command not found", exit_code=1) is None
+    assert extract_failure_diagnostic("sh: apt-get: not found", exit_code=2) is None
+    assert extract_failure_diagnostic("/tmp/script.sh: line 1: curl: not found", exit_code=None) is None
+
+    # Program merely printing command-not-found-like text
+    assert extract_failure_diagnostic("cat: /etc/hosts: File not found", exit_code=127) is None
+    assert extract_failure_diagnostic("grep: /path/file: No such file or directory", exit_code=127) is None
+    assert extract_failure_diagnostic("Error: database key not found in cache", exit_code=127) is None
+
+    # HTTP status or numeric tokens
+    assert extract_failure_diagnostic("HTTP/1.1 404: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("404: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("error: 1234: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("warning: 0: command not found", exit_code=127) is None
+
+    # Other common errors that must NOT be misclassified as missing_command
+    assert extract_failure_diagnostic("sh: line 10: syntax error: unexpected end of file", exit_code=127) is None
+    assert extract_failure_diagnostic("bash: /path/to/script.sh: Permission denied", exit_code=127) is None
+    assert extract_failure_diagnostic("Status: not found", exit_code=127) is None
+
+    # Pure symbols/dots
+    assert extract_failure_diagnostic(": not found", exit_code=127) is None
+    assert extract_failure_diagnostic("..: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("/: not found", exit_code=127) is None
+    assert extract_failure_diagnostic("//: not found", exit_code=127) is None
+
+
+def test_extract_failure_diagnostic_sanitization_and_unicode():
+    # ANSI escape sequences stripped before matching
+    ansi_text = "\x1b[31mbash: curl: command not found\x1b[0m"
+    diag = extract_failure_diagnostic(ansi_text, exit_code=127)
+    assert diag is not None
+    assert diag.command == "curl"
+    assert diag.message == "command not found: curl"
+
+    # Unicode command identifier
+    unicode_text = "sh: line 1: 测试工具: not found"
+    diag_u = extract_failure_diagnostic(unicode_text, exit_code=127)
+    assert diag_u is not None
+    assert diag_u.command == "测试工具"
+    assert diag_u.message == "command not found: 测试工具"
+
+    # Excessive command name length truncated safely with ellipsis
+    long_cmd = "a" * 150
+    long_text = f"sh: {long_cmd}: not found"
+    diag_long = extract_failure_diagnostic(long_text, exit_code=127)
+    assert diag_long is not None
+    assert len(diag_long.command) == 100
+    assert diag_long.command.endswith("...")
+
+
+def test_run_on_distro_with_diagnostic_mock(tmp_path):
+    script_file = tmp_path / "test_missing.sh"
+    script_file.write_text("#!/bin/sh\napt-get update\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 127}}
+    mock_container.logs.return_value = b"sh: line 2: apt-get: not found\n"
+    mock_client.containers.create.return_value = mock_container
+
+    # Positive: exit 127 + apt-get not found -> sets structured diagnostic
+    res_pos = run_on_distro(mock_client, str(script_file), "alpine:3.20")
+    assert res_pos.status == DistroStatus.FAIL
+    assert res_pos.exit_code == 127
+    assert res_pos.error_message == "Script failed with non-zero exit code: 127"
+    assert res_pos.diagnostic is not None
+    assert res_pos.diagnostic.kind == "missing_command"
+    assert res_pos.diagnostic.command == "apt-get"
+    assert res_pos.diagnostic.message == "command not found: apt-get"
+
+    # Negative 1: exit 127 but no missing command in output -> diagnostic is None
+    mock_container.logs.return_value = b"An unexpected error occurred.\n"
+    res_neg1 = run_on_distro(mock_client, str(script_file), "alpine:3.20")
+    assert res_neg1.status == DistroStatus.FAIL
+    assert res_neg1.exit_code == 127
+    assert res_neg1.diagnostic is None
+    assert res_neg1.error_message == "Script failed with non-zero exit code: 127"
+
+    # Negative 2: exit 1 with 'command not found' output -> diagnostic is None (must be exit 127)
+    mock_container.attrs = {"State": {"ExitCode": 1}}
+    mock_container.logs.return_value = b"sh: line 2: apt-get: not found\n"
+    res_neg2 = run_on_distro(mock_client, str(script_file), "alpine:3.20")
+    assert res_neg2.status == DistroStatus.FAIL
+    assert res_neg2.exit_code == 1
+    assert res_neg2.diagnostic is None
+    assert res_neg2.error_message == "Script failed with non-zero exit code: 1"
+
+
+def test_diagnostic_serialization_backward_compatibility():
+    # With diagnostic
+    res_with_diag = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=127,
+        duration=0.456,
+        output_snippet="apt-get: not found",
+        error_message="Script failed with non-zero exit code: 127",
+        diagnostic=FailureDiagnostic(
+            kind="missing_command",
+            command="apt-get",
+            message="command not found: apt-get",
+        ),
+    )
+    d = res_with_diag.to_dict()
+    assert d["distro"] == "alpine:3.20"
+    assert d["status"] == "FAIL"
+    assert d["exit_code"] == 127
+    assert d["duration"] == 0.456
+    assert d["output_snippet"] == "apt-get: not found"
+    assert d["error_message"] == "Script failed with non-zero exit code: 127"
+    assert d["diagnostic"] == {
+        "kind": "missing_command",
+        "command": "apt-get",
+        "message": "command not found: apt-get",
+    }
+
+    # Without diagnostic
+    res_without_diag = SingleResult(
+        distro="debian:12-slim",
+        status=DistroStatus.PASS,
+        exit_code=0,
+        duration=1.0,
+    )
+    d2 = res_without_diag.to_dict()
+    assert d2["diagnostic"] is None
+
+
+def test_reporter_rendering_with_diagnostic():
+    res1 = SingleResult(
+        distro="debian:12-slim",
+        status=DistroStatus.PASS,
+        exit_code=0,
+        duration=0.5,
+    )
+    res2 = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=127,
+        duration=0.2,
+        output_snippet="apt-get: not found",
+        error_message="Script failed with non-zero exit code: 127",
+        diagnostic=FailureDiagnostic(
+            kind="missing_command",
+            command="apt-get",
+            message="command not found: apt-get",
+        ),
+    )
+    res3 = SingleResult(
+        distro="ubuntu:22.04",
+        status=DistroStatus.FAIL,
+        exit_code=1,
+        duration=0.3,
+        error_message="Script failed with non-zero exit code: 1",
+    )
+    report = RunReport(results=[res1, res2, res3], total_duration=1.0)
+
+    # 1. Terminal Table
+    table_output = format_terminal_table(report)
+    assert "command not found: apt-get" in table_output
+    assert "Script failed with non-zero exit code: 1" in table_output
+    assert "OK" in table_output
+
+    # 2. GitHub Summary
+    gh_output = format_github_summary(report)
+    assert "command not found: apt-get" in gh_output
+    assert "> **Diagnostic:** `missing_command` — `command not found: apt-get`" in gh_output
+    assert "> **Error:** Script failed with non-zero exit code: 127" in gh_output

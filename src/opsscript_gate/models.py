@@ -21,6 +21,23 @@ class ShellMode(str, Enum):
 
 
 @dataclass
+class FailureDiagnostic:
+    """Structured diagnostic information for execution failures."""
+    kind: str
+    message: str
+    command: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "kind": self.kind,
+            "message": self.message,
+        }
+        if self.command is not None:
+            d["command"] = self.command
+        return d
+
+
+@dataclass
 class SingleResult:
     """Execution result for a single Linux distribution."""
     distro: str
@@ -29,6 +46,7 @@ class SingleResult:
     duration: float
     output_snippet: str = ""
     error_message: str | None = None
+    diagnostic: FailureDiagnostic | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -38,6 +56,7 @@ class SingleResult:
             "duration": round(self.duration, 3),
             "output_snippet": self.output_snippet,
             "error_message": self.error_message,
+            "diagnostic": self.diagnostic.to_dict() if self.diagnostic is not None else None,
         }
 
 

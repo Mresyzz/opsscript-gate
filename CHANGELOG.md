@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-19
+
+### Added
+- Structured runtime failure diagnostics: detect common "command not found" failures across Linux distributions (Alpine/BusyBox ash, Debian/Ubuntu dash, Bash, and missing interpreter paths).
+- High-confidence dual-signal classification: requires exit code 127 and matching shell output to produce a `missing_command` diagnostic.
+- Additive `diagnostic` field in JSON report format (`SingleResult.to_dict()`) providing structured diagnostic information (backward-compatible for consumers tolerating additional fields).
+- Enhanced terminal table formatting and GitHub Actions Step Summary showing clear failure causes in the summary overview.
+
+---
+
 ## [0.2.1] - 2026-09-19
 
 ### Fixed
