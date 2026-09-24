@@ -1497,3 +1497,451 @@ def test_cli_auto_discovery_execution(tmp_path, monkeypatch):
         # Verify script_path passed was the auto-discovered script
         called_script = mock_rm.call_args[1]["script_path"]
         assert "auto_run.sh" in called_script
+
+
+# ==============================================================================
+# 10. v0.4.1 Security Hardening and Adversarial Test Suite
+# ==============================================================================
+
+from pathlib import Path
+import re
+from opsscript_gate.runner import (
+    MAX_CAPTURED_LOG_BYTES,
+    MAX_LOG_TAIL_LINES,
+    MAX_SHEBANG_BYTES,
+    SCRIPT_READ_CHUNK_SIZE,
+    collect_container_logs,
+    sanitize_log_output,
+    _resolve_shell_command,
+)
+from opsscript_gate.reporter import (
+    escape_inline_code,
+    escape_markdown_text,
+    escape_markdown_table_cell,
+    escape_html_text,
+    format_safe_code_fence,
+    format_markdown_compatibility_card,
+    write_github_step_summary,
+)
+from opsscript_gate.cli import build_parser
+
+
+def test_collect_container_logs_bounded_rolling_buffer():
+    """Verify bounded rolling buffer caps retained memory and drops older bytes."""
+    # Create a mock container returning a generator of chunks exceeding MAX_CAPTURED_LOG_BYTES
+    chunk_size = 50 * 1024  # 50 KiB
+    num_chunks = 10  # 500 KiB total > 256 KiB cap
+
+    class MockStreamContainer:
+        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
+            assert stream is True
+            assert tail == MAX_LOG_TAIL_LINES
+            for i in range(num_chunks):
+                yield f"CHUNK-{i:02d}: " + ("x" * (chunk_size - 10))
+
+    container = MockStreamContainer()
+    result = collect_container_logs(container, max_bytes=MAX_CAPTURED_LOG_BYTES)
+
+    assert len(result.encode("utf-8")) <= MAX_CAPTURED_LOG_BYTES
+    # Ensure newest chunk is retained while oldest chunk was rolled out
+    assert "CHUNK-09:" in result
+    assert "CHUNK-00:" not in result
+
+
+def test_collect_container_logs_fallback_handling():
+    """Verify failure during streaming returns bounded partial data or empty string without non-streaming calls."""
+    class MockFailingContainer:
+        def __init__(self):
+            self.non_streaming_called = False
+
+        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
+            if not stream:
+                self.non_streaming_called = True
+                return b"SHOULD_NOT_BE_CALLED"
+            # Generator that yields one chunk then fails
+            def _stream():
+                yield "PARTIAL_LOG"
+                raise RuntimeError("connection aborted")
+            return _stream()
+
+    container = MockFailingContainer()
+    result = collect_container_logs(container, max_bytes=MAX_CAPTURED_LOG_BYTES)
+    # Must return already captured bounded partial data
+    assert result == "PARTIAL_LOG"
+    # Must NOT issue a non-streaming logs call
+    assert container.non_streaming_called is False
+
+
+def test_sanitize_log_output_neutralizes_workflow_commands():
+    """
+    Verify untrusted container logs cannot forge GitHub Actions workflow commands.
+    Line-leading '::' must be neutralized so Runner ignores them,
+    while OpsScript Gate's own annotations remain valid.
+    """
+    forged_log = (
+        "::error file=fake.sh,line=1::forged error message\n"
+        "normal log line\n"
+        "::warning::fake warning\n"
+        "echo a::b\n"
+        "::set-output name=admin::true"
+    )
+    sanitized = sanitize_log_output(forged_log)
+
+    # Verify no line starts with '::'
+    for line in sanitized.splitlines():
+        assert not line.startswith("::"), f"Line starts with workflow command marker: {line}"
+
+    # Verify the contents were preserved with harmless prefix
+    assert "[container] ::error file=fake.sh,line=1::forged error message" in sanitized
+    assert "[container] ::warning::fake warning" in sanitized
+    assert "[container] ::set-output name=admin::true" in sanitized
+    # Non-line-leading '::' should remain intact
+    assert "echo a::b" in sanitized
+
+    # Verify OpsScript Gate's legitimate annotations are NOT affected
+    report = RunReport(
+        results=[
+            SingleResult(
+                distro="alpine:3.20",
+                status=DistroStatus.FAIL,
+                exit_code=127,
+                duration=0.1,
+                diagnostic=FailureDiagnostic(
+                    kind="missing_command",
+                    command="bash",
+                    message="command not found: bash",
+                    line=5,
+                ),
+            )
+        ],
+        total_duration=0.1,
+    )
+    legit_ann = format_github_annotations(report, "test.sh")
+    assert len(legit_ann) == 1
+    assert legit_ann[0].startswith("::error file=test.sh,line=5,title=")
+
+
+def test_sanitize_log_output_ansi_and_control_chars():
+    """Verify ANSI escape sequences, C0 control characters, and CR overwrites are sanitized."""
+    raw = (
+        "\x1b[2J\x1b[1;1H"          # ANSI clear screen and move cursor
+        "\x1b[31;1mRed Alert\x1b[0m\n" # Colors
+        "\x1b]0;Title Hijack\x07"   # OSC title set
+        "Overwritten\rKept Line\n"  # Standalone CR
+        "Bell\x07 and Backspace\x08 and Del\x7f\n"
+        "Tabs\tand Newlines\nare preserved.\n"
+        "Unicode: 成功 ✅ 日本語"
+    )
+    sanitized = sanitize_log_output(raw)
+
+    assert "\x1b" not in sanitized
+    assert "\x07" not in sanitized
+    assert "\x08" not in sanitized
+    assert "\x7f" not in sanitized
+    assert "\r" not in sanitized
+    assert "Tabs\tand Newlines\nare preserved." in sanitized
+    assert "Unicode: 成功 ✅ 日本語" in sanitized
+    assert "Title Hijack" not in sanitized
+    assert "Red Alert" in sanitized
+
+
+def test_prepare_script_bounded_streaming_crlf(tmp_path):
+    """Verify bounded streaming CRLF conversion across chunk boundaries while preserving lone CR."""
+    # 1. CRLF split across chunk boundaries (with chunk_size=10)
+    # Byte 9 is '\r', Byte 10 is '\n'
+    split_crlf_content = b"012345678\r\n012345678\r\n"
+    f1 = tmp_path / "split_crlf.sh"
+    f1.write_bytes(split_crlf_content)
+
+    norm_path, temp_file = prepare_script(str(f1), chunk_size=10)
+    assert temp_file is not None
+    try:
+        content = Path(norm_path).read_bytes()
+        assert b"\r" not in content
+        assert content == b"012345678\n012345678\n"
+    finally:
+        temp_file.close()
+        if os.path.exists(temp_file.name):
+            os.remove(temp_file.name)
+
+    # 2. Lone CR at boundary (must NOT be corrupted)
+    lone_cr_content = b"012345678\rabcdefghij"
+    f2 = tmp_path / "lone_cr.sh"
+    f2.write_bytes(lone_cr_content)
+
+    norm_path2, temp_file2 = prepare_script(str(f2), chunk_size=10)
+    # Lone CR should either not trigger conversion or be preserved
+    if temp_file2 is not None:
+        try:
+            assert Path(norm_path2).read_bytes() == lone_cr_content
+        finally:
+            temp_file2.close()
+            if os.path.exists(temp_file2.name):
+                os.remove(temp_file2.name)
+    else:
+        assert norm_path2 == str(f2)
+
+    # 3. Clean LF script (no temp file created)
+    f3 = tmp_path / "clean_lf.sh"
+    f3.write_bytes(b"#!/bin/sh\necho ok\n")
+    clean_path, clean_temp = prepare_script(str(f3))
+    assert clean_temp is None
+    assert clean_path == str(f3)
+
+
+def test_inspect_shebang_bounded_line_length(tmp_path):
+    """Verify inspect_shebang reads at most MAX_SHEBANG_BYTES + 1 and safely marks oversized lines as MALFORMED."""
+    # 1. Exactly 4096-byte shebang line with newline
+    exact_line = b"#!" + b"/bin/bash " + (b"x" * (MAX_SHEBANG_BYTES - 13)) + b"\n"
+    f1 = tmp_path / "exact_shebang.sh"
+    f1.write_bytes(exact_line)
+    res1 = inspect_shebang(str(f1))
+    # It shouldn't crash or fail with length error
+    assert res1.status in (ShebangStatus.UNSUPPORTED, ShebangStatus.MALFORMED)
+    assert "exceeds maximum allowed length" not in (res1.error_message or "")
+
+    # 2. Oversized shebang line exceeding 4096 bytes without newline
+    oversized_line = b"#!" + (b"A" * (MAX_SHEBANG_BYTES + 100))
+    f2 = tmp_path / "oversized_shebang.sh"
+    f2.write_bytes(oversized_line)
+    res2 = inspect_shebang(str(f2))
+    assert res2.status == ShebangStatus.MALFORMED
+    assert f"exceeds maximum allowed length of {MAX_SHEBANG_BYTES} bytes" in res2.error_message
+
+
+def test_reporter_context_sensitive_escaping():
+    """Verify reporter context-sensitive escaping functions."""
+    # 1. escape_inline_code
+    assert escape_inline_code("foo`bar\r\nbaz`") == "foo'bar baz'"
+
+    # 2. escape_markdown_text
+    evil_md = "# Title\n> Quote\n[Click](http://evil.com)\n<script>alert(1)</script>\nnon-zero"
+    safe_md = escape_markdown_text(evil_md)
+    assert "\\# Title" in safe_md
+    assert "\\> Quote" in safe_md or "&gt; Quote" in safe_md
+    assert "\\[Click\\]\\(http://evil.com\\)" in safe_md
+    assert "&lt;script&gt;" in safe_md
+    assert "non-zero" in safe_md  # Normal hyphens preserved
+
+    # 3. escape_markdown_table_cell
+    assert escape_markdown_table_cell("col1 | col2\r\nrow2") == "col1 \\| col2 row2"
+
+    # 4. escape_html_text
+    assert escape_html_text('<summary>"Evil & Co"</summary>') == '&lt;summary&gt;&quot;Evil &amp; Co&quot;&lt;/summary&gt;'
+
+    # 5. format_safe_code_fence
+    snippet_with_backticks = "Some log with ``` and </details>"
+    fence_lines = format_safe_code_fence(snippet_with_backticks)
+    assert fence_lines[0].startswith("````")  # Uses 4 backticks
+    assert "<\\/details>" in fence_lines[1]
+    assert fence_lines[2].startswith("````")
+
+
+def test_reporter_rendering_adversarial_payloads():
+    """Verify format_markdown_compatibility_card survives adversarial field injections."""
+    adversarial_result = SingleResult(
+        distro='ubuntu:22.04`<script>alert(1)</script>`|',
+        status=DistroStatus.FAIL,
+        exit_code=127,
+        duration=0.5,
+        output_snippet='```\noutput containing ``` prematurely and </details>\n```',
+        error_message='Error with | pipe and \n newline and [Fake Link](http://evil.com)',
+        diagnostic=FailureDiagnostic(
+            kind="missing_command`",
+            command="evil`cmd|",
+            message="cmd`not found\n# Injected Heading",
+            line=10,
+            hint="Use | pipe or `cmd` or [Doc](http://evil.com)",
+        ),
+    )
+    report = RunReport(results=[adversarial_result], total_duration=0.5)
+    summary_md = format_markdown_compatibility_card(report, script_path="hack`script.sh|")
+
+    # Table structure remains intact (no raw unescaped pipes breaking the row)
+    assert "`hack'script.sh\\|`" in summary_md or "\\|" in summary_md
+    assert "<\\/details>" in summary_md
+    assert "</details></details>" not in summary_md
+    assert "\\[Fake Link\\]\\(http://evil.com\\)" in summary_md or "Fake Link" in summary_md
+
+
+def test_run_matrix_shared_temp_cleanup(tmp_path):
+    """Verify run_matrix prepares CRLF script once and cleans up shared temp file."""
+    crlf_script = tmp_path / "matrix_crlf.sh"
+    crlf_script.write_bytes(b"#!/bin/sh\r\necho running\r\n")
+
+    captured_prepared_paths = []
+
+    def mock_run_on_distro(**kwargs):
+        prepared = kwargs.get("prepared_script_path")
+        captured_prepared_paths.append(prepared)
+        return SingleResult(distro=kwargs["distro"], status=DistroStatus.PASS, exit_code=0, duration=0.1)
+
+    with mock.patch("opsscript_gate.runner.run_on_distro", side_effect=mock_run_on_distro):
+        with mock.patch("opsscript_gate.runner.get_docker_client"):
+            report = run_matrix(str(crlf_script), matrix=["debian:12-slim", "alpine:3.20"], jobs=2)
+
+    assert report.all_passed is True
+    assert len(captured_prepared_paths) == 2
+    # Both workers received the exact same prepared temp path
+    assert captured_prepared_paths[0] == captured_prepared_paths[1]
+    assert captured_prepared_paths[0] != str(crlf_script)
+    # Shared temp file must be cleaned up after matrix finishes
+    assert not os.path.exists(captured_prepared_paths[0])
+
+
+def test_write_github_step_summary_branches(tmp_path, monkeypatch):
+    """Test write_github_step_summary handling when env var is missing, valid, or unwritable."""
+    report = RunReport(
+        results=[SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.1)],
+        total_duration=0.1,
+    )
+
+    # 1. Unset
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert write_github_step_summary(report) is False
+
+    # 2. Valid path
+    summary_file = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    assert write_github_step_summary(report) is True
+    assert summary_file.exists()
+    assert "OpsScript Gate Compatibility Report" in summary_file.read_text(encoding="utf-8")
+
+    # 3. Unwritable path (directory instead of file)
+    unwritable_dir = tmp_path / "unwritable_dir"
+    unwritable_dir.mkdir()
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(unwritable_dir))
+    assert write_github_step_summary(report) is False
+
+
+def test_get_docker_client_generic_exception():
+    """Verify get_docker_client wraps arbitrary generic exceptions in DockerDaemonError."""
+    with mock.patch("docker.from_env", side_effect=Exception("Permission denied /var/run/docker.sock")):
+        with pytest.raises(DockerDaemonError) as exc_info:
+            get_docker_client()
+        assert "Unexpected error connecting to Docker daemon" in str(exc_info.value)
+
+
+def test_cli_main_unexpected_exception(tmp_path, monkeypatch, capsys):
+    """Verify CLI main gracefully catches unexpected exceptions and returns code 1."""
+    real_script = tmp_path / "valid.sh"
+    real_script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    mock_rm = mock.Mock(side_effect=RuntimeError("Unexpected matrix crash"))
+    monkeypatch.setattr("opsscript_gate.cli.run_matrix", mock_rm)
+
+    exit_code = main(["run", str(real_script)])
+    assert exit_code == 1
+    mock_rm.assert_called_once()
+    captured = capsys.readouterr()
+    assert "Unexpected Error" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_parser_defaults():
+    """Assert all CLI options have the expected default values in build_parser."""
+    parser = build_parser()
+    args = parser.parse_args(["run", "test.sh"])
+    assert args.command == "run"
+    assert args.script_path == "test.sh"
+    assert args.timeout == 60
+    assert args.jobs is None
+    assert args.shell == "posix"
+    assert args.mem_limit == "256m"
+    assert args.pids_limit == 128
+    assert args.network == "bridge"
+
+
+def test_collect_container_logs_single_giant_chunk():
+    """Verify a single chunk larger than max_bytes is sliced before extending the buffer."""
+    giant_chunk = ("A" * (MAX_CAPTURED_LOG_BYTES + 10000)) + "TAIL_DATA"
+
+    class MockGiantChunkContainer:
+        def logs(self, stdout=True, stderr=True, tail=None, stream=False):
+            assert stream is True
+            yield giant_chunk
+
+    container = MockGiantChunkContainer()
+    result = collect_container_logs(container, max_bytes=MAX_CAPTURED_LOG_BYTES)
+
+    assert len(result.encode("utf-8")) == MAX_CAPTURED_LOG_BYTES
+    assert result.endswith("TAIL_DATA")
+    assert result == giant_chunk[-MAX_CAPTURED_LOG_BYTES:]
+
+
+def test_reporter_copyable_markdown_fence_injection():
+    """Verify Copyable Markdown handles payloads attempting to break out of code fence or details."""
+    evil_payload = "FAKE PASS\n</details> ```\n```markdown\nInjected markdown"
+    res = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=1,
+        duration=0.2,
+        error_message=evil_payload,
+    )
+    report = RunReport(results=[res], total_duration=0.2)
+    summary_md = format_markdown_compatibility_card(report, "test.sh")
+
+    # Must NOT contain an unescaped </details> inside the copyable block that closes the outer details
+    assert "<\\/details>" in summary_md
+    # All raw </details> occurrences in the summary must be legitimate HTML container closures (exactly 2)
+    raw_details_close = [m.start() for m in re.finditer(r"(?<!\\)</details>", summary_md)]
+    assert len(raw_details_close) == 2, f"Unescaped closing tag found in summary: {summary_md}"
+    # Code fence should dynamically scale to at least 4 backticks
+    assert "````markdown" in summary_md or "`````markdown" in summary_md
+
+
+def test_reporter_distro_cell_escaping():
+    """Verify distro names containing pipe characters do not split GFM table cells."""
+    distro_with_pipe = "ubuntu:24.04|FAKE"
+    res = SingleResult(
+        distro=distro_with_pipe,
+        status=DistroStatus.PASS,
+        exit_code=0,
+        duration=0.3,
+    )
+    report = RunReport(results=[res], total_duration=0.3)
+    card = format_markdown_compatibility_card(report, "test.sh")
+
+    # Find all rows matching the distro name
+    matching_rows = [line for line in card.splitlines() if "ubuntu:24.04" in line]
+    assert len(matching_rows) == 2, f"Expected 2 matching rows (matrix and copyable), got: {matching_rows}"
+
+    # Row 1: compatibility matrix table row (5 columns -> 6 delimiters)
+    matrix_row = matching_rows[0]
+    matrix_delims = [ch for i, ch in enumerate(matrix_row) if ch == "|" and (i == 0 or matrix_row[i-1] != "\\")]
+    assert len(matrix_delims) == 6, f"Matrix table row was split by unescaped pipe: {matrix_row}"
+    assert "`ubuntu:24.04\\|FAKE`" in matrix_row
+
+    # Row 2: copyable markdown matrix row (4 columns -> 5 delimiters)
+    copy_row = matching_rows[1]
+    copy_delims = [ch for i, ch in enumerate(copy_row) if ch == "|" and (i == 0 or copy_row[i-1] != "\\")]
+    assert len(copy_delims) == 5, f"Copyable table row was split by unescaped pipe: {copy_row}"
+    assert "`ubuntu:24.04\\|FAKE`" in copy_row
+
+
+def test_run_matrix_prepare_script_failure_semantics(tmp_path):
+    """Verify prepare_script failure surfaces ERROR for all distros and does not run Docker."""
+    script_path = tmp_path / "protected.sh"
+    script_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    mock_docker_client = mock.MagicMock()
+
+    with mock.patch("opsscript_gate.runner.prepare_script", side_effect=PermissionError("Cannot read script")):
+        report = run_matrix(
+            script_path=str(script_path),
+            matrix=["debian:12-slim", "alpine:3.20"],
+            client=mock_docker_client,
+        )
+
+    # Assert no Docker containers created
+    mock_docker_client.containers.create.assert_not_called()
+    assert report.all_passed is False
+    assert len(report.results) == 2
+    for r in report.results:
+        assert r.status == DistroStatus.ERROR
+        assert "Failed to read/prepare script: Cannot read script" in (r.error_message or "")
+
+    # Verify CLI returns 1 on this failure
+    with mock.patch("opsscript_gate.runner.prepare_script", side_effect=PermissionError("Cannot read script")):
+        exit_code = main(["run", str(script_path)])
+        assert exit_code == 1
