@@ -29,6 +29,7 @@ def test_init_preview_and_no_overwrite(project, capsys):
     assert plan["scripts"] == ["./install.sh"]
     assert plan["executions"] == 2
     assert plan["network"] == "none"
+    assert "persist-credentials: false" in Path(".github/workflows/opsscript-gate.yml").read_text()
     original = Path(CONFIG_NAME).read_bytes()
     assert main(["init"]) == 1
     assert Path(CONFIG_NAME).read_bytes() == original
@@ -78,6 +79,21 @@ def test_discovery_limit_and_exclusions(project):
     with patch("opsscript_gate.cli.run_matrix") as run:
         assert main(["run", "--max-scripts", "1"]) == 1
         run.assert_not_called()
+
+
+def test_discovery_stops_at_first_overflow(tmp_path, monkeypatch):
+    for index in range(100):
+        (tmp_path / f"script-{index:03}.sh").write_text("echo ok\n")
+    checked = []
+
+    def candidate(path, max_size_bytes):
+        checked.append(path.name)
+        return True
+
+    monkeypatch.setattr("opsscript_gate.discovery.is_shell_script", candidate)
+    with pytest.raises(ValueError, match="more than 2"):
+        discover_scripts(str(tmp_path), max_scripts=2)
+    assert len(checked) == 3
 
 
 @pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"],

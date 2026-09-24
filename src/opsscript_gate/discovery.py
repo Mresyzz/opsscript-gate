@@ -108,12 +108,12 @@ def discover_scripts(
                     discovered.append(rel_path)
                 except ValueError:
                     discovered.append(str(file_path))
+                if len(discovered) > max_scripts:
+                    raise ValueError(
+                        f"Discovered more than {max_scripts} scripts, exceeding limit. "
+                        "Use --exclude or increase --max-scripts; no scripts were executed."
+                    )
 
     # Sort alphabetically for stable, deterministic ordering
     discovered.sort()
-    if len(discovered) > max_scripts:
-        raise ValueError(
-            f"Discovered {len(discovered)} scripts, exceeding limit {max_scripts}. "
-            "Use --exclude or increase --max-scripts; no scripts were executed."
-        )
     return discovered

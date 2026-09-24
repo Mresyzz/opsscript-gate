@@ -61,6 +61,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: Mresyzz/opsscript-gate@v0.5.0
         with:
           config: .opsscript-gate.json

@@ -19,12 +19,11 @@ It is designed for shell testing, portable shell validation, Bash/POSIX compatib
 
 ---
 
-## New in v0.5.0 (release preparation)
+## New in v0.5.0
 
 Preview exactly what will run, keep local and CI settings together, and exclude test
-fixtures before executing scripts. These features are in this checkout; published
-v0.4.0 does not include them. Install this checkout with `pip install -e .` to try them.
-The generated workflow targets `v0.5.0` and requires that tag to be published first.
+fixtures before executing scripts. These controls are included in v0.5.0. Projects on
+v0.4.1 and earlier do not include them.
 
 ```bash
 opsscript-gate init
@@ -57,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.4.1
+      - uses: Mresyzz/opsscript-gate@v0.5.0
 ```
 
 > **Zero Config**: If `script-path` is omitted, OpsScript Gate automatically discovers shell scripts in your repository. Scripts run sequentially, with concurrent distribution checks for each script. Preview discovery before running unfamiliar repositories.
@@ -65,7 +64,7 @@ jobs:
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.4.1
+      - uses: Mresyzz/opsscript-gate@v0.5.0
         with:
           script-path: scripts/install.sh
           shell: auto

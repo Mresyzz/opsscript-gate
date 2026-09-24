@@ -10,7 +10,7 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 
 ## 试用本次 v0.5.0 更新
 
-本次更新尚未发布到 PyPI／GitHub Release，请从本地源码安装：
+v0.5.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -25,8 +25,8 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.5.0`，
-需待该版本发布后使用。预览不需要 Docker；真实运行需要 Python 3.10+
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.5.0`。
+预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 
 生成的配置默认排除 `tests/*`、`examples/*`，使用 Debian + Alpine，尊重

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-09-24
 
 ### Added
 - `init`: non-overwriting project configuration and GitHub workflow generation.
@@ -20,8 +20,8 @@
 ### Migration
 - Repositories with more than 20 discovered scripts must exclude unwanted scripts or raise `max_scripts`.
 - Auto-discovery no longer follows file symlinks; explicit script paths remain supported.
-- Default settings without a configuration file remain compatible with v0.4.0.
-- Generated workflows require the v0.5.0 release tag; it has not been published by this update.
+- Default settings without a configuration file remain compatible with v0.4.1 and earlier.
+- Generated workflows use the v0.5.0 release tag.
 
 All notable changes to this project will be documented in this file.
 
