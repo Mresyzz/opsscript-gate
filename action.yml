@@ -13,7 +13,7 @@ inputs:
   matrix:
     description: 'Comma-separated container images to test (e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
     required: false
-    default: 'debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20'
+    default: ''
   jobs:
     description: 'Number of parallel container execution jobs (default: min(2, matrix_size))'
     required: false
@@ -21,27 +21,52 @@ inputs:
   timeout:
     description: 'Hard timeout in seconds per container (default: 60)'
     required: false
-    default: '60'
+    default: ''
   format:
     description: 'Output report format: table, markdown, or json'
     required: false
-    default: 'table'
+    default: ''
   shell:
     description: "Shell execution mode: 'posix' (default), 'shebang', or 'auto'"
     required: false
-    default: 'posix'
+    default: ''
   mem-limit:
     description: 'Memory limit for containers (default: 256m)'
     required: false
-    default: '256m'
+    default: ''
   pids-limit:
     description: 'Maximum number of processes per container (default: 128)'
     required: false
-    default: '128'
+    default: ''
   network:
     description: "Container network mode: 'bridge' or 'none' (default: bridge)"
     required: false
-    default: 'bridge'
+    default: ''
+
+  config:
+    description: 'Path to project JSON configuration'
+    required: false
+    default: ''
+  preset:
+    description: 'Distribution preset: minimal or ubuntu'
+    required: false
+    default: ''
+  exclude:
+    description: 'Newline-separated repository-relative exclusion globs'
+    required: false
+    default: ''
+  max-scripts:
+    description: 'Maximum discovered scripts; exceeding the limit fails'
+    required: false
+    default: ''
+  dry-run:
+    description: 'Preview the execution plan without Docker'
+    required: false
+    default: 'false'
+  output:
+    description: 'Save a report file for upload-artifact or other tooling'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -68,23 +93,34 @@ runs:
         INPUT_MEM_LIMIT: ${{ inputs.mem-limit }}
         INPUT_PIDS_LIMIT: ${{ inputs.pids-limit }}
         INPUT_NETWORK: ${{ inputs.network }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PRESET: ${{ inputs.preset }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_MAX_SCRIPTS: ${{ inputs.max-scripts }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_OUTPUT: ${{ inputs.output }}
       run: |
         ARGS=("run")
         if [ -n "$INPUT_SCRIPT_PATH" ]; then
           ARGS+=("$INPUT_SCRIPT_PATH")
         fi
-        ARGS+=(
-          "--timeout" "$INPUT_TIMEOUT"
-          "--format" "$INPUT_FORMAT"
-          "--shell" "$INPUT_SHELL"
-          "--mem-limit" "$INPUT_MEM_LIMIT"
-          "--pids-limit" "$INPUT_PIDS_LIMIT"
-          "--network" "$INPUT_NETWORK"
-        )
-        if [ -n "$INPUT_MATRIX" ]; then
-          ARGS+=("--matrix" "$INPUT_MATRIX")
-        fi
-        if [ -n "$INPUT_JOBS" ]; then
-          ARGS+=("--jobs" "$INPUT_JOBS")
+        # Only explicit inputs override project configuration.
+        for pair in TIMEOUT FORMAT SHELL MEM_LIMIT PIDS_LIMIT NETWORK MATRIX JOBS CONFIG PRESET MAX_SCRIPTS OUTPUT; do
+          var="INPUT_$pair"
+          value="${!var}"
+          if [ -n "$value" ]; then
+            flag="${pair,,}"
+            ARGS+=("--${flag//_/-}" "$value")
+          fi
+        done
+        while IFS= read -r pattern; do
+          pattern="${pattern%$'\r'}"
+          [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")
+        done <<< "$INPUT_EXCLUDE"
+        if [ "$INPUT_DRY_RUN" = "true" ]; then
+          ARGS+=("--dry-run")
+        elif [ "$INPUT_DRY_RUN" != "false" ]; then
+          echo "dry-run must be true or false" >&2
+          exit 1
         fi
         python -m opsscript_gate.cli "${ARGS[@]}"

@@ -1,4 +1,6 @@
-# OpsScript Gate
+# OpsScript Gate — shell script compatibility testing
+
+[简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md)
 
 > **ShellCheck tells you if your script looks portable. OpsScript Gate checks if it actually runs there.**
 
@@ -14,6 +16,29 @@
 **OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your scripts inside unprivileged Debian, Ubuntu, and Alpine containers before merge, catching environment-specific runtime failures, missing interpreters, and package-manager assumptions that static analysis cannot detect.
 
 ---
+
+## New in v0.5.0 (release preparation)
+
+Preview exactly what will run, keep local and CI settings together, and exclude test
+fixtures before executing scripts. These features are in this checkout; published
+v0.4.0 does not include them. Install this checkout with `pip install -e .` to try them.
+The generated workflow targets `v0.5.0` and requires that tag to be published first.
+
+```bash
+opsscript-gate init
+opsscript-gate run --dry-run
+opsscript-gate run --format json --output reports/compatibility.json
+```
+
+`init` creates `.opsscript-gate.json` and a GitHub Actions workflow without replacing
+existing files. Review its exclusions (`tests/*`, `examples/*`) and offline network
+default before running. No Docker is required for `init` or `--dry-run`.
+
+Useful for standalone installers, container entrypoints and release scripts that
+must work on both GNU/Linux and Alpine/BusyBox. Each script runs independently;
+repository files, sibling scripts and project dependencies are **not** mounted.
+See [configuration and migration](docs/configuration.md) and
+[why a shell script works on Ubuntu but fails on Alpine](docs/troubleshooting.md).
 
 ## ⚡ 30-Second Quickstart
 
@@ -33,7 +58,7 @@ jobs:
       - uses: Mresyzz/opsscript-gate@v0.4.0
 ```
 
-> **Zero Config**: If `script-path` is omitted, OpsScript Gate automatically discovers shell scripts in your repository and tests them concurrently!
+> **Zero Config**: If `script-path` is omitted, OpsScript Gate automatically discovers shell scripts in your repository. Scripts run sequentially, with concurrent distribution checks for each script. Preview discovery before running unfamiliar repositories.
 
 Or test a specific script with custom execution modes:
 
@@ -240,6 +265,22 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 - **`1`**: At least one distribution failed (`FAIL`), timed out (`TIMED_OUT`), or errored (`ERROR`).
 
 ---
+
+### v0.5.0 project controls
+
+| Option | Purpose |
+| :--- | :--- |
+| `init` | Generate configuration and a GitHub workflow without overwriting files |
+| `--dry-run` | Preview selected scripts, images and total executions without Docker |
+| `--config PATH` | Load a specific JSON configuration file |
+| `--preset minimal` | Debian + Alpine (two container runs per script) |
+| `--preset ubuntu` | Ubuntu 22.04 + 24.04 |
+| `--exclude 'tests/*'` | Exclude a repository-relative glob; repeatable |
+| `--max-scripts 50` | Raise the default discovery limit of 20; overflow is an error |
+| `--output report.json` | Save the selected output format, including failed test reports |
+
+Explicit CLI options override project settings. Explicit script paths bypass discovery
+and its exclusions. See [complete configuration semantics](docs/configuration.md).
 
 ## 🐶 Dogfooding
 

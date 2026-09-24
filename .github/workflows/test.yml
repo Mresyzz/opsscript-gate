@@ -8,7 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -16,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+        python-version: ${{ matrix.python }}
 
       - name: Install Dependencies
         run: |
@@ -50,3 +54,12 @@ jobs:
       - name: Run Docker Integration Tests
         run: |
           pytest -v -m integration
+
+      - name: Exercise the local composite Action
+        uses: ./
+        with:
+          script-path: tests/fixtures/pass_basic.sh
+          preset: minimal
+          network: none
+          output: action-report.json
+          format: json

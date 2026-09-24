@@ -377,7 +377,8 @@ def test_cli_version(capsys):
         main(["--version"])
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert "0.4.0" in captured.out
+    from opsscript_gate import __version__
+    assert __version__ in captured.out
 
 
 def test_cli_format_markdown_and_table(tmp_path, capsys):
