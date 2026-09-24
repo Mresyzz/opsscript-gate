@@ -105,14 +105,18 @@ runs:
           ARGS+=("$INPUT_SCRIPT_PATH")
         fi
         # Only explicit inputs override project configuration.
-        for pair in TIMEOUT FORMAT SHELL MEM_LIMIT PIDS_LIMIT NETWORK MATRIX JOBS CONFIG PRESET MAX_SCRIPTS OUTPUT; do
-          var="INPUT_$pair"
-          value="${!var}"
-          if [ -n "$value" ]; then
-            flag="${pair,,}"
-            ARGS+=("--${flag//_/-}" "$value")
-          fi
-        done
+        [ -z "$INPUT_TIMEOUT" ] || ARGS+=(--timeout "$INPUT_TIMEOUT")
+        [ -z "$INPUT_FORMAT" ] || ARGS+=(--format "$INPUT_FORMAT")
+        [ -z "$INPUT_SHELL" ] || ARGS+=(--shell "$INPUT_SHELL")
+        [ -z "$INPUT_MEM_LIMIT" ] || ARGS+=(--mem-limit "$INPUT_MEM_LIMIT")
+        [ -z "$INPUT_PIDS_LIMIT" ] || ARGS+=(--pids-limit "$INPUT_PIDS_LIMIT")
+        [ -z "$INPUT_NETWORK" ] || ARGS+=(--network "$INPUT_NETWORK")
+        [ -z "$INPUT_MATRIX" ] || ARGS+=(--matrix "$INPUT_MATRIX")
+        [ -z "$INPUT_JOBS" ] || ARGS+=(--jobs "$INPUT_JOBS")
+        [ -z "$INPUT_CONFIG" ] || ARGS+=(--config "$INPUT_CONFIG")
+        [ -z "$INPUT_PRESET" ] || ARGS+=(--preset "$INPUT_PRESET")
+        [ -z "$INPUT_MAX_SCRIPTS" ] || ARGS+=(--max-scripts "$INPUT_MAX_SCRIPTS")
+        [ -z "$INPUT_OUTPUT" ] || ARGS+=(--output "$INPUT_OUTPUT")
         while IFS= read -r pattern; do
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")
