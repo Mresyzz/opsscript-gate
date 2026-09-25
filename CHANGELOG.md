@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0] - 2026-09-24
+
+### Added
+- `init`: non-overwriting project configuration and GitHub workflow generation.
+- Shared, strictly validated `.opsscript-gate.json` settings; explicit CLI/Action inputs win.
+- Docker-free `--dry-run` plans in text or JSON, including execution counts.
+- `minimal` and `ubuntu` distribution presets, repeatable exclusion globs and configurable discovery limit.
+- `--output` report artifacts, including failure reports; source/config overwrite protection.
+- Action inputs for configuration, presets, exclusions, preview and saved reports.
+- Chinese quickstart, configuration guide and Ubuntu/Alpine troubleshooting guide.
+
+### Fixed
+- Discovery now fails on overflow instead of silently testing only the first 20 scripts.
+- Discovery skips symlinks and non-files and rejects shebang prefix collisions.
+- CLI rejects non-positive limits and unsupported network modes before execution.
+- Default Action inputs no longer override a user's project configuration.
+
+### Migration
+- Repositories with more than 20 discovered scripts must exclude unwanted scripts or raise `max_scripts`.
+- Auto-discovery no longer follows file symlinks; explicit script paths remain supported.
+- Default settings without a configuration file remain compatible with v0.4.1 and earlier.
+- Generated workflows use the v0.5.0 release tag.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

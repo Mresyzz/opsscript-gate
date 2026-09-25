@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import fnmatch
 from pathlib import Path
 
 # Directories to ignore during automatic script discovery
@@ -41,11 +42,13 @@ MAX_SCRIPT_SIZE_BYTES = 1024 * 1024  # 1 MB
 def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES) -> bool:
     """
     Check if a file is a candidate shell script:
-    - Must be a regular file and not a symlink to an invalid target.
+    - Must be a regular file, never a symlink.
     - File size must not exceed max_size_bytes.
     - Extension is .sh or .bash, OR the first line is a recognized shell shebang.
     """
     try:
+        if file_path.is_symlink() or not file_path.is_file():
+            return False
         stat = file_path.stat()
         if stat.st_size == 0 or stat.st_size > max_size_bytes:
             return False
@@ -59,7 +62,8 @@ def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES
             first_line_bytes = f.readline(256)
 
         first_line = first_line_bytes.decode("utf-8", errors="ignore").strip()
-        return any(first_line.startswith(prefix) for prefix in SHELL_SHEBANG_PREFIXES)
+        return any(first_line == prefix or first_line.startswith(prefix + " ")
+                   for prefix in SHELL_SHEBANG_PREFIXES)
     except (OSError, PermissionError):
         return False
 
@@ -68,12 +72,14 @@ def discover_scripts(
     root_dir: str = ".",
     max_scripts: int = MAX_DISCOVERED_SCRIPTS,
     max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES,
+    exclude: list[str] | None = None,
 ) -> list[str]:
     """
     Discover candidate shell scripts within root_dir, respecting ignored directories
     and caps on file count and size.
 
     Returns normalized relative POSIX paths sorted alphabetically for deterministic ordering.
+    Raises ValueError on overflow so a successful gate never silently omits scripts.
     """
     root_path = Path(root_dir).resolve()
     discovered: list[str] = []
@@ -94,13 +100,20 @@ def discover_scripts(
             if is_shell_script(file_path, max_size_bytes=max_size_bytes):
                 try:
                     rel_path = file_path.relative_to(root_path).as_posix()
+                    if any(fnmatch.fnmatchcase(rel_path, pattern) for pattern in (exclude or [])):
+                        continue
                     # Prepend ./ if top-level for standard script path conventions
                     if not rel_path.startswith("./") and "/" not in rel_path:
                         rel_path = f"./{rel_path}"
                     discovered.append(rel_path)
                 except ValueError:
                     discovered.append(str(file_path))
+                if len(discovered) > max_scripts:
+                    raise ValueError(
+                        f"Discovered more than {max_scripts} scripts, exceeding limit. "
+                        "Use --exclude or increase --max-scripts; no scripts were executed."
+                    )
 
     # Sort alphabetically for stable, deterministic ordering
     discovered.sort()
-    return discovered[:max_scripts]
+    return discovered
