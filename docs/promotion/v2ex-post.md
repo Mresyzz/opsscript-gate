@@ -10,7 +10,6 @@
 ```text
 为什么 ShellCheck 检查全绿的运维脚本，在 Alpine 容器里依然会挂？做了一个开源轻量预演门禁 OpsScript Gate
 ```
-
 ---
 
 ## 3. 正文模版 (Markdown)
@@ -55,7 +54,7 @@
    GitHub Actions 中只需 5 行代码：
    ```yaml
    - uses: actions/checkout@v7
-   - uses: Mresyzz/opsscript-gate@v0.3.0
+   - uses: Mresyzz/opsscript-gate@v0.5.0
      with:
        script-path: scripts/setup.sh
        shell: auto

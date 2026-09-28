@@ -43,12 +43,11 @@ Running full multi-machine matrices or writing custom Docker boilerplate for eve
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Mresyzz/opsscript-gate@v0.3.0
+- uses: Mresyzz/opsscript-gate@v0.5.0
   with:
     script-path: scripts/install.sh
     shell: auto
 ```
-
 Project positioning:
 > *"ShellCheck tells you if your script looks portable. OpsScript Gate checks if it actually runs there."*
 
