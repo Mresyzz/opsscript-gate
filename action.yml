@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Run Linux shell scripts across Debian, Ubuntu and Alpine before release to catch runtime compatibility failures'
+description: 'Run Linux shell scripts in Debian, Ubuntu and Alpine containers to catch runtime compatibility failures before merge'
 author: 'Mresyzz'
 branding:
   icon: 'shield'
