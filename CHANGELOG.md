@@ -3,19 +3,16 @@
 ## [0.5.0] - 2026-09-24
 
 ### Added
-- `init`: non-overwriting project configuration and GitHub workflow generation.
-- Shared, strictly validated `.opsscript-gate.json` settings; explicit CLI/Action inputs win.
-- Docker-free `--dry-run` plans in text or JSON, including execution counts.
-- `minimal` and `ubuntu` distribution presets, repeatable exclusion globs and configurable discovery limit.
-- `--output` report artifacts, including failure reports; source/config overwrite protection.
-- Action inputs for configuration, presets, exclusions, preview and saved reports.
-- Chinese quickstart, configuration guide and Ubuntu/Alpine troubleshooting guide.
+- Added `opsscript-gate init` to create a config file and GitHub workflow without replacing existing files.
+- Added `.opsscript-gate.json` with CLI and Action overrides.
+- Added `--dry-run`, `minimal` and `ubuntu` presets, exclusion globs, and `--output` reports.
+- Added configuration, Chinese quickstart, and Ubuntu/Alpine troubleshooting documentation.
 
 ### Fixed
-- Discovery now fails on overflow instead of silently testing only the first 20 scripts.
-- Discovery skips symlinks and non-files and rejects shebang prefix collisions.
-- CLI rejects non-positive limits and unsupported network modes before execution.
-- Default Action inputs no longer override a user's project configuration.
+- Discovery stops at the first candidate beyond the configured limit instead of silently ignoring files.
+- Discovery skips symlinks and non-files and checks shebangs without prefix matches.
+- CLI validates limits and network modes before execution.
+- Empty Action inputs no longer override project configuration.
 
 ### Migration
 - Repositories with more than 20 discovered scripts must exclude unwanted scripts or raise `max_scripts`.
@@ -31,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.1] - 2026-09-19
 
 ### Fixed & Hardened
-- **Bounded container log capture**: Stream-captures container logs using an immediate rolling byte buffer capped at 256 KiB (`MAX_CAPTURED_LOG_BYTES`) and tail limited to 500 lines (`MAX_LOG_TAIL_LINES`), bounding retained container log data to reduce memory-exhaustion risk from runaway output.
-- **Workflow command neutralization**: Neutralizes untrusted container logs starting with `::` into `[container] ::` to prevent malicious scripts from forging GitHub Actions workflow commands in Runner consoles, while keeping OpsScript Gate's own annotations intact.
+- Bounded container log capture with a 256 KiB rolling buffer and 500-line tail.
+- Neutralized untrusted container logs beginning with `::` before they reach GitHub Actions.
 - **Terminal ANSI and control character sanitization**: Strips ANSI escape sequences (CSI, OSC, 2-byte escapes), removes dangerous C0 control characters and DEL, and normalizes CRLF and standalone carriage returns (`\r`) to defeat terminal line overwrite and status spoofing, while preserving printable Unicode.
 - **Context-sensitive Markdown and HTML injection defense**: Implemented dedicated escaping (`escape_inline_code`, `escape_markdown_text`, `escape_markdown_table_cell`, `escape_html_text`, `format_safe_code_fence`) to prevent table cell tearing, HTML container breakout (`</details>`), premature code fence closure, and structural Markdown injection from runtime-derived values.
 - **Bounded streaming script preparation**: Stream-normalizes CRLF in bounded 64 KiB chunks (`SCRIPT_READ_CHUNK_SIZE`), properly handling boundary-split CRLF while preserving lone CR bytes without whole-file memory allocation. Bounded shebang parsing to 4096 bytes (`MAX_SHEBANG_BYTES`).
@@ -45,15 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-09-19
 
 ### Added
-- **High-confidence line-level GitHub Actions annotations**: Emits inline `::error` annotations with exact script line numbers directly on pull request file diffs.
+- Line-level GitHub Actions annotations with script paths and line numbers.
 - **Workflow command injection defense**: Strictly escapes parameters (`%`, `\r`, `\n`, `:`, `,`) and message bodies (`%`, `\r`, `\n`) to eliminate command injection from unclassified container logs.
-- **Conservative distro-aware remediation hints**: Suggests testable, high-confidence remediation recommendations (`RemediationRule`) with conservative phrasing (`normally`, `may`, `consider`), covering:
+- Distro-aware remediation hints for common mismatches, including:
   - Alpine package manager mismatches (`apt`/`apt-get` -> `apk`)
   - Debian/Ubuntu package manager mismatches (`apk` -> `apt-get`)
   - Alpine minimal missing Bash (`bash` -> consider POSIX sh or installing bash)
   - Missing network prerequisites (`curl`, `wget`)
   - Missing shebang interpreter paths.
-- **Re-engineered Compatibility Card**: Overhauled GitHub Actions Step Summary with an instant 5-second triage table and an expandable copy-pasteable Markdown snippet ready for PR descriptions and Issue comments.
+- Updated the GitHub Actions Step Summary with a compatibility table and a Markdown result block.
 - **Parallel matrix execution (`--jobs` / `jobs`)**: Concurrently runs container checks using `ThreadPoolExecutor` (defaults to `min(2, matrix_size)`), strictly preserving matrix output order and ensuring reliable container cleanup.
 - **Hardened container resource limits**: Added `--mem-limit` (default: 256m) and `--pids-limit` (default: 128) flags and Action inputs to prevent runaway resource exhaustion.
 - **Configurable network isolation (`--network`)**: Supports `--network bridge` (default) and `--network none` for offline script execution.
@@ -70,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Structured runtime failure diagnostics: detect common "command not found" failures across Linux distributions (Alpine/BusyBox ash, Debian/Ubuntu dash, Bash, and missing interpreter paths).
-- High-confidence dual-signal classification: requires exit code 127 and matching shell output to produce a `missing_command` diagnostic.
+- Missing-command classification requires exit code 127 and matching shell output.
 - Additive `diagnostic` field in JSON report format (`SingleResult.to_dict()`) providing structured diagnostic information (backward-compatible for consumers tolerating additional fields).
 - Enhanced terminal table formatting and GitHub Actions Step Summary showing clear failure causes in the summary overview.
 
@@ -104,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Configured PyPI Trusted Publishing via GitHub Actions OIDC (`pypa/gh-action-pypi-publish`).
 - Added full PyPI package metadata, classifiers, and project URLs to `pyproject.toml`.
-- Ensured absolute asset URLs in `README.md` for seamless PyPI rendering.
+- Ensured asset URLs in `README.md` render correctly on PyPI.
 
 ---
 
