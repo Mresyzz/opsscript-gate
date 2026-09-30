@@ -17,6 +17,11 @@
 
 It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
 
+If your repository contains an installer, bootstrap script, or shell entrypoint, the fastest path is to
+copy the [zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml). It only runs when
+shell files change, uses offline containers by default, and uploads a report that can be attached to a PR.
+No account, API key, or service signup is required.
+
 ---
 
 ## Current release: v0.6.0
@@ -46,6 +51,9 @@ See [configuration and migration](docs/configuration.md) and
 ### In GitHub Actions
 
 Add this workflow to `.github/workflows/shell-compat.yml`:
+
+You can also select **OpsScript Gate shell compatibility** from GitHub's workflow templates, or copy the
+maintained [starter workflow](.github/workflow-templates/opsscript-gate.yml).
 
 You can copy the maintained example from [`examples/github-actions/workflow.yml`](examples/github-actions/workflow.yml)
 and change the `script-path`, or use the minimal workflow below.

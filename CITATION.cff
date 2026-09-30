@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+title: OpsScript Gate
+message: If this project helps your shell compatibility testing, please cite it.
+type: software
+authors:
+  - family-names: Mresyzz
+    given-names: Mresy
+version: 0.6.0
+date-released: 2026-09-30
+repository-code: https://github.com/Mresyzz/opsscript-gate
+url: https://github.com/Mresyzz/opsscript-gate
+license: MIT
