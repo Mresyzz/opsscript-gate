@@ -1,0 +1,41 @@
+name: Shell compatibility
+
+on:
+  pull_request:
+    paths:
+      - '**/*.sh'
+      - '**/*.bash'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.sh'
+      - '**/*.bash'
+
+permissions:
+  contents: read
+
+jobs:
+  shell-compatibility:
+    name: Debian, Ubuntu and Alpine
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run OpsScript Gate
+        uses: Mresyzz/opsscript-gate@v0.6.0
+        with:
+          shell: auto
+          network: none
+          format: markdown
+          output: reports/opsscript-gate.md
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opsscript-gate-report
+          path: reports/opsscript-gate.md
+          if-no-files-found: ignore

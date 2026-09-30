@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.1] - 2026-10-01
+
+### Added
+- Added a zero-configuration GitHub workflow starter that runs only when shell files change.
+- Added a copyable compatibility report artifact to the starter workflow.
+- Added citation metadata and clearer PyPI keywords for installer and bootstrap use cases.
+
+### Changed
+- Marked the project Beta now that the default matrix, safety controls, reports, presets, and changed-script mode are released.
+- Updated the roadmap to show the v0.5 and v0.6 controls as delivered.
+
 ## [0.6.0] - 2026-09-30
 
 ### Added

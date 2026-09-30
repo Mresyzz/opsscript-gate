@@ -25,7 +25,14 @@ This roadmap tracks features delivered in recent releases and areas under consid
 
 ---
 
-## Planned for Future Releases (v0.5.0+)
+## Delivered in v0.5.0 and v0.6.0
+
+- [x] Project configuration with strict validation and CLI/Action precedence.
+- [x] Dry-run plans, `minimal` and `ubuntu` presets, exclusions, and saved reports.
+- [x] Bounded discovery with symlink and oversized-file protection.
+- [x] Changed-script selection with `--changed-since` for pull requests.
+
+## Planned for Future Releases
 
 ### 1. Matrix & Distribution Presets
 - [ ] **RPM-based distributions**: Evaluate support for Enterprise Linux baselines (e.g. Rocky Linux 9, AlmaLinux, Fedora).
