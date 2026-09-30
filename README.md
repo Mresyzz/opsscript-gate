@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md)
 
-> **ShellCheck tells you if your script looks portable. OpsScript Gate checks if it actually runs there.**
+> ShellCheck analyzes shell syntax. OpsScript Gate executes scripts in Linux containers.
 
 [![CI](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml)
 [![Demo](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml)
@@ -13,17 +13,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Supported Distros](https://img.shields.io/badge/matrix-Debian%20%7C%20Ubuntu%20%7C%20Alpine-orange.svg)](#default-test-matrix)
 
-**OpsScript Gate** is a drop-in runtime compatibility gate for Linux shell scripts. It executes your scripts inside unprivileged Debian, Ubuntu, and Alpine containers before merge, catching environment-specific runtime failures, missing interpreters, and package-manager assumptions that static analysis cannot detect.
+**OpsScript Gate** is a runtime compatibility checker for Linux shell scripts. It executes scripts inside unprivileged Debian, Ubuntu, and Alpine containers, catching environment-specific failures, missing interpreters, and package-manager assumptions that static analysis cannot detect.
 
 It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
 
 ---
 
-## New in v0.5.0
+## v0.5.0
 
-Preview exactly what will run, keep local and CI settings together, and exclude test
-fixtures before executing scripts. These controls are included in v0.5.0. Projects on
-v0.4.1 and earlier do not include them.
+Version 0.5 adds a project config file, a dry-run plan, presets, exclusions, and saved
+reports. Projects on v0.4.1 and earlier do not include these options.
 
 ```bash
 opsscript-gate init
@@ -41,11 +40,11 @@ repository files, sibling scripts and project dependencies are **not** mounted.
 See [configuration and migration](docs/configuration.md) and
 [why a shell script works on Ubuntu but fails on Alpine](docs/troubleshooting.md).
 
-## ⚡ 30-Second Quickstart
+## Quickstart
 
-### In GitHub Actions (Zero Config)
+### In GitHub Actions
 
-Drop this minimal workflow into `.github/workflows/shell-compat.yml`:
+Add this workflow to `.github/workflows/shell-compat.yml`:
 
 You can copy the maintained example from [`examples/github-actions/workflow.yml`](examples/github-actions/workflow.yml)
 and change the `script-path`, or use the minimal workflow below.
@@ -62,7 +61,8 @@ jobs:
       - uses: Mresyzz/opsscript-gate@v0.5.0
 ```
 
-> **Zero Config**: If `script-path` is omitted, OpsScript Gate automatically discovers shell scripts in your repository. Scripts run sequentially, with concurrent distribution checks for each script. Preview discovery before running unfamiliar repositories.
+If `script-path` is omitted, the action discovers shell scripts in the repository.
+Use `opsscript-gate run --dry-run` to inspect the selection before running it.
 
 Or test a specific script with custom execution modes:
 
@@ -89,7 +89,7 @@ opsscript-gate run ./scripts/install.sh
 opsscript-gate run
 ```
 
-### Try a Real Failure in 30 Seconds
+### Example: package-manager mismatch
 
 Create `install.sh`:
 
@@ -116,23 +116,23 @@ Alpine 3.20      FAIL
 apt-get: not found
 ```
 
-The script is valid shell, but the runtime environment is incompatible. That is exactly the class of failure OpsScript Gate is designed to catch.
+The script is valid shell, but it assumes a command that is not present in Alpine.
 
 ---
 
-## 🎯 Reviewer-First Experience: What It Produces
+## CI output
 
-Every run of OpsScript Gate generates clean, actionable feedback right where developers and reviewers need it:
+The action reports failures in two places:
 
-### 1. Line-Level GitHub Annotations
-When a failure occurs, OpsScript Gate flags the exact script line on your Pull Request's **Files Changed** view with high-confidence diagnostics and conservative remediation hints:
+### GitHub annotations
+Failures include the script path, line number, distribution, and a short diagnostic:
 
 ```text
 ::error file=scripts/setup.sh,line=4,title=OpsScript Gate: [alpine:3.20] command not found: apt-get::command not found: apt-get — Alpine normally uses apk instead of apt-get.
 ```
 
-### 2. GitHub Step Summary Compatibility Card
-A beautifully formatted markdown summary is automatically posted to `$GITHUB_STEP_SUMMARY`:
+### Step summary
+The action also writes a markdown matrix to `$GITHUB_STEP_SUMMARY`:
 
 ```markdown
 ## 🛡️ OpsScript Gate Compatibility Report
@@ -151,14 +151,14 @@ A beautifully formatted markdown summary is automatically posted to `$GITHUB_STE
 | `alpine:3.20` | ❌ FAIL | `127` | `0.19s` | ⚠️ Missing command: `apt-get` (line 4)<br>💡 *Alpine normally uses apk instead of apt-get.* |
 
 <details>
-<summary>📋 <b>Copyable Markdown (Click to expand & copy to PR / Issue)</b></summary>
+<summary><b>Markdown result</b></summary>
 ...
 </details>
 ```
 
 ---
 
-## 🔍 Example: What Static Analysis Misses
+## Example: runtime behavior that static analysis misses
 
 Consider this clean deployment script:
 
@@ -195,37 +195,38 @@ Failed Distributions - Output Snippets (last 15 lines):
 sh: line 4: apt-get: not found
 ```
 
-**Why it failed:** Alpine Linux is musl/BusyBox-based and uses `apk`, not `apt-get`. OpsScript Gate catches the missing command (`exit code 127`) and gives you the exact line number and conservative remediation hint before deployment.
+**Why it failed:** Alpine uses `apk`, not `apt-get`. The report includes the missing command and its line number.
 
 ---
 
-## 🛡️ Why OpsScript Gate?
+## Scope compared with other checks
 
-### OpsScript Gate vs ShellCheck vs Custom CI Matrix
+### OpsScript Gate compared with ShellCheck and a custom CI matrix
 
 | Capability | OpsScript Gate | ShellCheck | Handwritten CI Matrix |
 | :--- | :---: | :---: | :---: |
 | **Runtime execution** | **Yes** | No (Static AST only) | Yes |
 | **Real distro environments** | **Yes (Debian, Ubuntu, Alpine)** | No | Yes |
 | **Preconfigured defaults** | **Yes** | Yes | Requires custom workflow configuration |
-| **Hardened container defaults** | **Built-in (`ro`, `cap_drop`, resource limits)** | N/A | User-defined |
+| **Restricted container defaults** | **Built-in (`ro`, `cap_drop`, resource limits)** | N/A | User-defined |
 | **Anti-hang stdin protection** | **Built-in (`</dev/null`, noninteractive)** | No | User-defined |
-| **Line-Level Annotations & Hints** | **Built-in (Zero config)** | Static warnings | User-defined |
+| **Line-Level Annotations & Hints** | **Built-in** | Static warnings | User-defined |
 | **Parallel Matrix Execution** | **Built-in (`--jobs`)** | N/A | Manual matrix config |
 
-- **ShellCheck** is indispensable for static analysis (syntax, quoting, SC warnings). OpsScript Gate complements it by testing actual execution behavior in real distributions.
-- **Handwritten CI Matrix** requires maintaining complex Docker configurations, volume mounts, timeout guards, and log parsers across every project. OpsScript Gate packages this into a single check.
+ShellCheck checks shell syntax and common mistakes. OpsScript Gate runs the script in
+real distributions. A custom CI matrix can do the same job, but each repository must
+maintain its own images, mounts, timeouts, and report handling.
 
 ---
 
-## 🔒 Security Boundaries & Hardened Isolation
+## Security boundaries and container isolation
 
 OpsScript Gate is a runtime compatibility testing tool, **not a security sandbox for hostile or fully untrusted code**. Containers still share the host kernel, so target scripts should be treated accordingly.
 
 <details>
 <summary><strong>View security boundaries and runtime hardening details</strong></summary>
 
-OpsScript Gate applies conservative, restricted container defaults when running scripts:
+The runner uses restricted container defaults:
 
 1. **Restricted Container Defaults**:
    - Containers run with `privileged=False`.
@@ -275,7 +276,7 @@ Use it when you want to know whether a shell script actually runs across the sup
 
 ---
 
-## 📦 Default Test Matrix
+## Default test matrix
 
 | Image | Distribution | Focus |
 | :--- | :--- | :--- |
@@ -288,7 +289,7 @@ Customize the matrix at any time via `--matrix` or Action input `matrix`.
 
 ---
 
-## 🛠️ CLI Reference
+## CLI reference
 
 ```text
 usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
@@ -341,9 +342,9 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 Explicit CLI options override project settings. Explicit script paths bypass discovery
 and its exclusions. See [complete configuration semantics](docs/configuration.md).
 
-## 🌍 Real-World Usage
+## Downstream example
 
-OpsScript Gate is actively used in [`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) to validate `install.sh` across the default Debian, Ubuntu, and Alpine matrix in GitHub Actions.
+[`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) contains a workflow that validates `install.sh` across the default Debian, Ubuntu, and Alpine matrix.
 
 See the downstream workflow: [`.github/workflows/test.yml`](https://github.com/Mresyzz/linux-dev-bootstrap/blob/main/.github/workflows/test.yml).
 
@@ -368,11 +369,9 @@ pytest -v
 
 ---
 
-## 💛 If OpsScript Gate Helps
+## Feedback
 
-If OpsScript Gate catches a compatibility problem in one of your scripts, consider starring the repository so other shell and DevOps maintainers can find it too.
-
-Bug reports, real-world compatibility cases, and pull requests are especially welcome.
+Please report compatibility cases, bugs, and pull requests in the issue tracker.
 
 ---
 

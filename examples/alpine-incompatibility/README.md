@@ -1,6 +1,7 @@
 # Alpine Incompatibility Example
 
-This example illustrates a common production issue: an ops script implicitly relies on `apt-get`, which works seamlessly on Debian and Ubuntu, but fails instantly on Alpine (which uses `apk`).
+This example shows a common portability issue: a script calls `apt-get`, which is
+available on Debian and Ubuntu but not on Alpine, where the package manager is `apk`.
 
 Static linters like ShellCheck usually cannot determine if `apt-get` exists on the target runtime system, but OpsScript Gate catches this immediately.
 
