@@ -43,12 +43,11 @@ What it does:
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: Mresyzz/opsscript-gate@v0.3.0
+- uses: Mresyzz/opsscript-gate@v0.5.0
   with:
     script-path: scripts/setup.sh
     shell: auto
 ```
-
 The positioning:
 "ShellCheck tells you if your script looks portable.
 OpsScript Gate checks if it actually runs there."

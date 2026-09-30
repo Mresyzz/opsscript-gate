@@ -47,6 +47,9 @@ See [configuration and migration](docs/configuration.md) and
 
 Drop this minimal workflow into `.github/workflows/shell-compat.yml`:
 
+You can copy the maintained example from [`examples/github-actions/workflow.yml`](examples/github-actions/workflow.yml)
+and change the `script-path`, or use the minimal workflow below.
+
 ```yaml
 name: Shell Compatibility Gate
 on: [pull_request, push]

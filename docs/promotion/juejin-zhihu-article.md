@@ -13,7 +13,6 @@
 ```bash
 curl -fsSL https://example.com/install.sh | sh
 ```
-
 为了保证脚本质量，大多数团队会在 CI（持续集成）流水线中引入业界公认的静态检查神级工具——**ShellCheck**。
 
 当 CI 中 ShellCheck 的绿色勾勾亮起，提示 `No issues detected` 时，大家通常都会长舒一口气，以为这个脚本可以在所有 Linux 机器上高枕无忧地运行了。
@@ -125,7 +124,7 @@ strategy:
    GitHub Actions 中仅需 5 行：
    ```yaml
    - uses: actions/checkout@v7
-   - uses: Mresyzz/opsscript-gate@v0.3.0
+   - uses: Mresyzz/opsscript-gate@v0.5.0
      with:
        script-path: scripts/deploy.sh
        shell: auto
