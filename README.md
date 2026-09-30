@@ -19,10 +19,11 @@ It is designed for shell testing, portable shell validation, Bash/POSIX compatib
 
 ---
 
-## v0.5.0
+## Current release: v0.5.1
 
-Version 0.5 adds a project config file, a dry-run plan, presets, exclusions, and saved
-reports. Projects on v0.4.1 and earlier do not include these options.
+The current release includes a project config file, a dry-run plan, presets, exclusions,
+and saved reports. These controls were introduced in v0.5.0; projects on v0.4.1 and
+earlier do not include them.
 
 ```bash
 opsscript-gate init
@@ -58,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.5.0
+      - uses: Mresyzz/opsscript-gate@v0.5.1
 ```
 
 If `script-path` is omitted, the action discovers shell scripts in the repository.
@@ -67,7 +68,7 @@ Use `opsscript-gate run --dry-run` to inspect the selection before running it.
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.5.0
+      - uses: Mresyzz/opsscript-gate@v0.5.1
         with:
           script-path: scripts/install.sh
           shell: auto

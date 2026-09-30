@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-09-30
+
+### Changed
+- Published the current README and examples with the v0.5.1 Action tag.
+- Updated package and Action metadata to describe the supported container matrix and runtime compatibility check.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

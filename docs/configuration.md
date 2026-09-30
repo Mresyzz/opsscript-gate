@@ -11,7 +11,7 @@ opsscript-gate run --dry-run
 ```
 
 `init` refuses to overwrite either `.opsscript-gate.json` or
-`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.5.0 tag.
+`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.5.1 tag.
 
 The generated config uses the two-image `minimal` preset, honors recognized shell
 shebangs, disables networking, and excludes `tests/*` and `examples/*`. Review these
@@ -90,7 +90,7 @@ The Action accepts matching `config`, `preset`, `max-scripts`, `dry-run`, and `o
 inputs; `exclude` is a multiline list. Omitted execution inputs preserve config values.
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.5.0
+- uses: Mresyzz/opsscript-gate@v0.5.1
   with:
     config: .opsscript-gate.json
     format: json
