@@ -1,6 +1,6 @@
 # OpsScript Gate：Shell 脚本跨发行版运行检查
 
-[English](README.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md)
+[English](README.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md) · [自托管模型安装脚本指南](docs/gpt-oss.md)
 
 在 Debian、Ubuntu、Alpine 容器里实际运行 Shell 脚本，提前发现缺失命令、
 Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
@@ -8,9 +8,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 适合独立安装脚本、容器入口脚本和发布脚本。每次只挂载目标脚本，
 不挂载整个仓库；依赖其他仓库文件的脚本需要现有项目测试配合。
 
-## 当前版本 v0.5.1
+## 当前版本 v0.6.0
 
-v0.5.1 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
+v0.6.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -25,7 +25,7 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.5.1`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.6.0`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 
@@ -44,6 +44,25 @@ opsscript-gate run --format json --output reports/compatibility.json
 
 返回码 `0` 表示全部通过，`1` 表示检查失败或发生错误。`--dry-run` 成功只表示
 执行计划生成成功。容器不是不可信代码的安全沙箱。
+
+在 Pull Request 中只检查本次修改的脚本，可以先获取完整 Git 历史，再传入目标分支提交：
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    fetch-depth: 0
+- uses: Mresyzz/opsscript-gate@v0.6.0
+  with:
+    changed-since: ${{ github.event.pull_request.base.sha }}
+    preset: minimal
+```
+
+如果本次修改没有 Shell 脚本，检查会直接通过，不启动容器。 本地可以用
+`opsscript-gate run --changed-since origin/main --dry-run` 预览选择结果。
+
+如果仓库维护自托管模型的安装或启动脚本，可以参考
+[自托管模型安装脚本指南](docs/gpt-oss.md)。它只验证 Shell 和发行版兼容性，
+不代替 GPU、模型权重或推理质量测试。
 
 ## 示例：为什么 Alpine 上会失败
 

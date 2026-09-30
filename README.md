@@ -1,6 +1,6 @@
 # OpsScript Gate — shell script compatibility testing
 
-[简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md)
+[简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
 
 > ShellCheck analyzes shell syntax. OpsScript Gate executes scripts in Linux containers.
 
@@ -19,11 +19,11 @@ It is designed for shell testing, portable shell validation, Bash/POSIX compatib
 
 ---
 
-## Current release: v0.5.1
+## Current release: v0.6.0
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
-and saved reports. These controls were introduced in v0.5.0; projects on v0.4.1 and
-earlier do not include them.
+saved reports, and changed-script selection for pull requests. The project controls
+were introduced in v0.5.0; projects on v0.4.1 and earlier do not include them.
 
 ```bash
 opsscript-gate init
@@ -59,16 +59,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.5.1
+      - uses: Mresyzz/opsscript-gate@v0.6.0
 ```
 
-If `script-path` is omitted, the action discovers shell scripts in the repository.
-Use `opsscript-gate run --dry-run` to inspect the selection before running it.
+This zero-configuration form discovers shell scripts in the repository. Use
+`opsscript-gate run --dry-run` to inspect the selection, or set `script-path` when the
+repository has a single installer. For self-hosted model installers, see the
+[installer guide](docs/gpt-oss.md).
 
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.5.1
+      - uses: Mresyzz/opsscript-gate@v0.6.0
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -89,6 +91,25 @@ opsscript-gate run ./scripts/install.sh
 # Or auto-discover scripts across your repository
 opsscript-gate run
 ```
+
+### Test only scripts changed in a pull request
+
+Fetch the comparison revision and pass the pull request base SHA to avoid running
+unrelated scripts:
+
+```yaml
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: Mresyzz/opsscript-gate@v0.6.0
+        with:
+          changed-since: ${{ github.event.pull_request.base.sha }}
+          preset: minimal
+```
+
+If the change does not include a shell script, the check passes without starting a
+container. The same selection can be previewed locally with
+`opsscript-gate run --changed-since origin/main --dry-run`.
 
 ### Example: package-manager mismatch
 
@@ -312,6 +333,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 | `--mem-limit` | String | `256m` | Memory limit per container (e.g. `256m`, `512m`) |
 | `--pids-limit`| Integer | `128` | Maximum number of processes per container |
 | `--network` | Choice | `bridge` | Container network mode: `bridge` or `none` |
+| `--changed-since` | Git revision | - | Test shell scripts changed between this revision and `HEAD` |
 | `--version` | Flag | - | Show version number |
 | `-h, --help` | Flag | - | Show argument help |
 

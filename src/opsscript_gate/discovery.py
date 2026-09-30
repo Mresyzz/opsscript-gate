@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import fnmatch
+import subprocess
 from pathlib import Path
 
 # Directories to ignore during automatic script discovery
@@ -117,3 +118,66 @@ def discover_scripts(
     # Sort alphabetically for stable, deterministic ordering
     discovered.sort()
     return discovered
+
+
+def discover_changed_scripts(
+    root_dir: str = ".",
+    since: str = "HEAD^",
+    max_scripts: int = MAX_DISCOVERED_SCRIPTS,
+    max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES,
+    exclude: list[str] | None = None,
+) -> list[str]:
+    """Discover shell scripts changed between ``since`` and ``HEAD``.
+
+    Git provides the candidate paths; the same file, size, shebang, exclusion,
+    and overflow checks used by normal discovery still apply. A missing Git
+    repository or unavailable revision is reported as a user-facing error.
+    """
+    root_path = Path(root_dir).resolve()
+    if not since or not since.strip() or since.startswith("-") or any(char.isspace() for char in since):
+        raise ValueError("changed-since must name a Git revision")
+
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", "-z",
+             f"{since}...HEAD", "--"],
+            cwd=root_path,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("changed-since requires Git to be installed") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode("utf-8", errors="replace").strip()
+        raise ValueError(
+            f"Cannot compare Git revision {since!r} with HEAD"
+            + (f": {detail}" if detail else "")
+        ) from exc
+
+    changed_paths = [
+        item.decode("utf-8", errors="surrogateescape")
+        for item in result.stdout.split(b"\0")
+        if item
+    ]
+    discovered: list[str] = []
+    for relative_name in changed_paths:
+        candidate = root_path / Path(relative_name)
+        try:
+            resolved = candidate.resolve()
+            rel_path = resolved.relative_to(root_path).as_posix()
+        except (OSError, ValueError):
+            continue
+        if any(fnmatch.fnmatchcase(rel_path, pattern) for pattern in (exclude or [])):
+            continue
+        if not is_shell_script(candidate, max_size_bytes=max_size_bytes):
+            continue
+        normalized = rel_path if "/" in rel_path else f"./{rel_path}"
+        discovered.append(normalized)
+        if len(discovered) > max_scripts:
+            raise ValueError(
+                f"Changed files include more than {max_scripts} shell scripts, exceeding limit. "
+                "Use --exclude or increase --max-scripts; no scripts were executed."
+            )
+
+    return sorted(set(discovered))

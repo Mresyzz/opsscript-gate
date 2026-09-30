@@ -6,7 +6,7 @@ import pytest
 
 from opsscript_gate.cli import main
 from opsscript_gate.config import CONFIG_NAME, init_project, load_config
-from opsscript_gate.discovery import discover_scripts, is_shell_script
+from opsscript_gate.discovery import discover_changed_scripts, discover_scripts, is_shell_script
 from opsscript_gate.models import RunReport, SingleResult, DistroStatus
 
 
@@ -94,6 +94,40 @@ def test_discovery_stops_at_first_overflow(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="more than 2"):
         discover_scripts(str(tmp_path), max_scripts=2)
     assert len(checked) == 3
+
+
+def test_changed_discovery_uses_git_paths_and_filters_candidates(tmp_path):
+    (tmp_path / "install.sh").write_text("#!/bin/sh\necho ok\n")
+    (tmp_path / "README.md").write_text("docs\n")
+    completed = type("Completed", (), {"stdout": b"install.sh\0README.md\0", "stderr": b""})()
+    with patch("opsscript_gate.discovery.subprocess.run", return_value=completed) as run:
+        result = discover_changed_scripts(str(tmp_path), since="origin/main")
+    assert result == ["./install.sh"]
+    run.assert_called_once()
+    assert "origin/main...HEAD" in run.call_args.args[0]
+
+
+@pytest.mark.parametrize("revision", ["", "--output=bad", "origin/main bad"])
+def test_changed_discovery_rejects_invalid_revision(tmp_path, revision):
+    with pytest.raises(ValueError, match="changed-since"):
+        discover_changed_scripts(str(tmp_path), since=revision)
+
+
+def test_changed_discovery_reports_empty_selection_as_success(project, monkeypatch, capsys):
+    monkeypatch.setattr("opsscript_gate.cli.discover_changed_scripts", lambda *args, **kwargs: [])
+    assert main(["run", "--changed-since", "origin/main"]) == 0
+    assert "No changed shell scripts" in capsys.readouterr().out
+
+
+def test_changed_discovery_preview_includes_revision(project, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "opsscript_gate.cli.discover_changed_scripts",
+        lambda *args, **kwargs: ["./install.sh"],
+    )
+    assert main(["run", "--changed-since", "origin/main", "--dry-run", "--format", "json"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["changed_since"] == "origin/main"
+    assert plan["scripts"] == ["./install.sh"]
 
 
 @pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"],

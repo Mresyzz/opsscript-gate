@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from opsscript_gate import __version__
-from opsscript_gate.discovery import discover_scripts
+from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
 from opsscript_gate.config import DEFAULTS, PRESETS, init_project, load_config
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
@@ -108,6 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
         default="bridge",
         help="Network mode for containers: 'bridge' or 'none' (default: bridge)",
     )
+    run_parser.add_argument(
+        "--changed-since",
+        help="Only test shell scripts changed between this Git revision and HEAD",
+    )
 
     run_parser.add_argument("--config", help="Project JSON configuration (default: .opsscript-gate.json)")
     run_parser.add_argument("--preset", choices=list(PRESETS), help="Named distribution matrix")
@@ -172,18 +176,30 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"Error: {err}\n")
             return 1
         # Resolve target script(s)
+        if args.script_path and args.changed_since:
+            sys.stderr.write("Error: use either a script path or --changed-since, not both\n")
+            return 1
+        changed_selection = bool(args.changed_since)
         if args.script_path:
             if not os.path.isfile(args.script_path):
                 sys.stderr.write(f"Error: Script file not found: {args.script_path}\n")
                 return 1
             target_scripts = [args.script_path]
+        elif changed_selection:
+            try:
+                target_scripts = discover_changed_scripts(
+                    ".", since=args.changed_since, max_scripts=args.max_scripts, exclude=args.exclude
+                )
+            except ValueError as err:
+                sys.stderr.write(f"Error: {err}\n")
+                return 1
         else:
             try:
                 target_scripts = discover_scripts(".", max_scripts=args.max_scripts, exclude=args.exclude)
             except ValueError as err:
                 sys.stderr.write(f"Error: {err}\n")
                 return 1
-            if not target_scripts:
+            if not target_scripts and not changed_selection:
                 sys.stderr.write(
                     "No shell scripts discovered in the current directory. "
                     "Please specify a script path explicitly.\n"
@@ -203,11 +219,19 @@ def main(argv: list[str] | None = None) -> int:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
                     "executions": len(target_scripts) * len(matrix), "shell": args.shell,
                     "network": args.network, "timeout": args.timeout}
+            if changed_selection:
+                plan["changed_since"] = args.changed_since
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
                 + f"\nImages: {', '.join(matrix)}\nContainer executions: {plan['executions']}"
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s"
+            )
+            return 0 if publish_output(output, args.output) else 1
+
+        if not target_scripts:
+            output = (
+                f"No changed shell scripts since {args.changed_since}; skipping compatibility checks."
             )
             return 0 if publish_output(output, args.output) else 1
 
