@@ -67,6 +67,10 @@ inputs:
     description: 'Save a report file for upload-artifact or other tooling'
     required: false
     default: ''
+  changed-since:
+    description: 'Only test shell scripts changed between this Git revision and HEAD'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -99,6 +103,7 @@ runs:
         INPUT_MAX_SCRIPTS: ${{ inputs.max-scripts }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
         INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
       run: |
         ARGS=("run")
         if [ -n "$INPUT_SCRIPT_PATH" ]; then
@@ -117,6 +122,7 @@ runs:
         [ -z "$INPUT_PRESET" ] || ARGS+=(--preset "$INPUT_PRESET")
         [ -z "$INPUT_MAX_SCRIPTS" ] || ARGS+=(--max-scripts "$INPUT_MAX_SCRIPTS")
         [ -z "$INPUT_OUTPUT" ] || ARGS+=(--output "$INPUT_OUTPUT")
+        [ -z "$INPUT_CHANGED_SINCE" ] || ARGS+=(--changed-since "$INPUT_CHANGED_SINCE")
         while IFS= read -r pattern; do
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0] - 2026-09-30
+
+### Added
+- Added `--changed-since` and the matching Action input to test only shell scripts changed since a Git revision.
+- Changed-script selection uses the existing discovery safety checks and passes when a change contains no shell scripts.
+
 ## [0.5.1] - 2026-09-30
 
 ### Changed
