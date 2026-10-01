@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+from opsscript_gate import __version__
 from opsscript_gate.models import DistroStatus, MultiScriptReport, RunReport, SingleResult
 
 # Structure-altering Markdown characters in regular prose:
@@ -461,6 +462,125 @@ def format_multi_github_summary(multi_report: MultiScriptReport) -> str:
 def format_json(report: RunReport | MultiScriptReport) -> str:
     """Format the report as structured JSON."""
     return json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
+
+
+_SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
+_SARIF_RULES = {
+    DistroStatus.FAIL: ("OSG001", "Runtime compatibility failure"),
+    DistroStatus.TIMED_OUT: ("OSG002", "Runtime compatibility check timed out"),
+    DistroStatus.ERROR: ("OSG003", "Runtime compatibility check error"),
+}
+
+
+def _sarif_path(script_path: str) -> str:
+    """Return a repository-relative SARIF artifact path."""
+    clean = (script_path or "script.sh").replace("\\", "/")
+    while clean.startswith("./"):
+        clean = clean[2:]
+    return clean or "script.sh"
+
+
+def _sarif_message(result: SingleResult) -> str:
+    parts = [f"[{result.distro}] {result.status.value}"]
+    if result.diagnostic:
+        parts.append(result.diagnostic.message)
+        if result.diagnostic.hint:
+            parts.append(result.diagnostic.hint)
+    elif result.error_message:
+        parts.append(result.error_message)
+    elif result.exit_code is not None:
+        parts.append(f"Execution exited with code {result.exit_code}.")
+    return " — ".join(parts)
+
+
+def _sarif_result(result: SingleResult, script_path: str) -> dict[str, object] | None:
+    if result.status == DistroStatus.PASS:
+        return None
+
+    rule_id, rule_name = _SARIF_RULES[result.status]
+    physical_location: dict[str, object] = {
+        "artifactLocation": {
+            "uri": _sarif_path(script_path),
+        },
+    }
+    if result.diagnostic and result.diagnostic.line and result.diagnostic.line > 0:
+        physical_location["region"] = {"startLine": result.diagnostic.line}
+
+    properties: dict[str, object] = {
+        "distribution": result.distro,
+        "status": result.status.value,
+        "durationSeconds": round(result.duration, 3),
+    }
+    if result.exit_code is not None:
+        properties["exitCode"] = result.exit_code
+    if result.diagnostic and result.diagnostic.command:
+        properties["command"] = result.diagnostic.command
+
+    return {
+        "ruleId": rule_id,
+        "level": "error",
+        "message": {"text": _sarif_message(result)},
+        "locations": [{"physicalLocation": physical_location}],
+        "properties": properties,
+        "help": {
+            "text": rule_name,
+            "uri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
+        },
+    }
+
+
+def _sarif_run(results: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "tool": {
+            "driver": {
+                "name": "OpsScript Gate",
+                "version": __version__,
+                "informationUri": "https://github.com/Mresyzz/opsscript-gate",
+                "rules": [
+                    {
+                        "id": rule_id,
+                        "name": rule_name,
+                        "shortDescription": {"text": rule_name},
+                        "helpUri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
+                    }
+                    for rule_id, rule_name in _SARIF_RULES.values()
+                ],
+            },
+        },
+        "results": results,
+    }
+
+
+def format_sarif(report: RunReport, script_path: str = "") -> str:
+    """Format runtime failures as SARIF 2.1.0 for GitHub Code Scanning."""
+    results = [
+        item
+        for result in report.results
+        if (item := _sarif_result(result, script_path)) is not None
+    ]
+    payload = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [_sarif_run(results)],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def format_multi_sarif(report: MultiScriptReport) -> str:
+    """Format multi-script runtime failures as one SARIF 2.1.0 run."""
+    results: list[dict[str, object]] = []
+    for script_path, script_report in report.reports.items():
+        results.extend(
+            item
+            for result in script_report.results
+            if (item := _sarif_result(result, script_path)) is not None
+        )
+    payload = {
+        "$schema": _SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [_sarif_run(results)],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def write_github_step_summary(

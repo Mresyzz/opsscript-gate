@@ -23,7 +23,7 @@ inputs:
     required: false
     default: ''
   format:
-    description: 'Output report format: table, markdown, or json'
+    description: 'Output report format: table, markdown, json, or sarif'
     required: false
     default: ''
   shell:

@@ -15,8 +15,10 @@ from opsscript_gate.reporter import (
     emit_github_annotations,
     format_github_summary,
     format_json,
+    format_multi_sarif,
     format_multi_github_summary,
     format_multi_terminal_table,
+    format_sarif,
     format_terminal_table,
     write_github_step_summary,
 )
@@ -91,9 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--format",
-        choices=["table", "markdown", "json"],
+        choices=["table", "markdown", "json", "sarif"],
         default="table",
-        help="Output report format: 'table' (default ASCII), 'markdown', or 'json'",
+        help="Output report format: 'table' (default ASCII), 'markdown', 'json', or 'sarif'",
     )
     run_parser.add_argument(
         "--shell",
@@ -301,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
             # Format report output
             if args.format == "json":
                 output = format_json(report)
+            elif args.format == "sarif":
+                output = format_sarif(report, script_path=script_path)
             elif args.format == "markdown":
                 output = format_github_summary(report, script_path=script_path)
             else:
@@ -353,6 +357,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.format == "json":
             output = format_json(multi_report)
+        elif args.format == "sarif":
+            output = format_multi_sarif(multi_report)
         elif args.format == "markdown":
             output = format_multi_github_summary(multi_report)
         else:

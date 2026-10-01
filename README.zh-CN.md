@@ -33,6 +33,10 @@ opsscript-gate run --format json --output reports/compatibility.json
 和可访问的 Linux Docker 引擎。
 `opsscript-gate doctor` 可以在真实运行前检查 Python 和 Docker。
 
+需要接入 GitHub Code Scanning 时，将 `--format sarif --output reports/opsscript-gate.sarif`
+传给运行命令，再用 `github/codeql-action/upload-sarif@v3` 上传报告。每个失败发行版
+都会保留脚本路径、诊断行号、命令和退出码；全部通过时仍会生成合法的空 SARIF 报告。
+
 生成的配置默认排除 `tests/*`、`examples/*`，使用 Debian + Alpine，尊重
 脚本 shebang，并关闭网络。请根据实际脚本审核配置；需要下载文件时启用
 `--network bridge`。保留现有无配置行为：四个发行版、POSIX shell、bridge 网络。
