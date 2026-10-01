@@ -24,6 +24,7 @@ from opsscript_gate.runner import (
     DEFAULT_MATRIX,
     DEFAULT_TIMEOUT,
     DockerDaemonError,
+    get_docker_client,
     run_matrix,
 )
 
@@ -43,6 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
     subparsers.add_parser("init", help="Create project configuration and GitHub workflow")
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check the local environment before running containers",
+    )
+    doctor_parser.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format: 'table' (default) or 'json'",
+    )
 
     # 'run' subcommand
     run_parser = subparsers.add_parser(
@@ -148,6 +159,38 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError) as err:
             sys.stderr.write(f"Error: {err}\n")
             return 1
+
+    if args.command == "doctor":
+        checks = [
+            {
+                "name": "python",
+                "ok": sys.version_info >= (3, 10),
+                "detail": f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            }
+        ]
+        try:
+            get_docker_client()
+            checks.append({"name": "docker", "ok": True, "detail": "Docker daemon is reachable"})
+        except DockerDaemonError as err:
+            checks.append({"name": "docker", "ok": False, "detail": str(err)})
+
+        config_path = Path(".opsscript-gate.json")
+        checks.append({
+            "name": "project",
+            "ok": True,
+            "detail": f"Found {config_path}" if config_path.is_file() else "No project config (optional)",
+        })
+        passed = all(check["ok"] for check in checks)
+        if args.format == "json":
+            print(json.dumps({"status": "PASS" if passed else "FAIL", "checks": checks}, indent=2))
+        else:
+            print("OpsScript Gate doctor")
+            for check in checks:
+                marker = "PASS" if check["ok"] else "FAIL"
+                print(f"[{marker}] {check['name']}: {check['detail']}")
+            if not passed:
+                print("Run `opsscript-gate init` after fixing the failed check, then preview with `opsscript-gate run --dry-run`.")
+        return 0 if passed else 1
 
     if args.command == "run":
         try:

@@ -10,9 +10,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 
 也可以直接打开 [InstallReady 在线扫描器](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate)，无需登录即可检查公开仓库。
 
-## 当前版本 v0.6.2
+## 当前版本 v0.6.3
 
-v0.6.2 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
+v0.6.3 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -23,13 +23,15 @@ opsscript-gate run examples/basic/clean_setup.sh --dry-run
 
 ```bash
 opsscript-gate init
+opsscript-gate doctor
 opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.6.2`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.6.3`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
+`opsscript-gate doctor` 可以在真实运行前检查 Python 和 Docker。
 
 生成的配置默认排除 `tests/*`、`examples/*`，使用 Debian + Alpine，尊重
 脚本 shebang，并关闭网络。请根据实际脚本审核配置；需要下载文件时启用
@@ -47,13 +49,16 @@ opsscript-gate run --format json --output reports/compatibility.json
 返回码 `0` 表示全部通过，`1` 表示检查失败或发生错误。`--dry-run` 成功只表示
 执行计划生成成功。容器不是不可信代码的安全沙箱。
 
+需要排查本地环境时运行 `opsscript-gate doctor --format json`；它会检查 Python、
+Docker daemon 和可选的项目配置。
+
 在 Pull Request 中只检查本次修改的脚本，可以先获取完整 Git 历史，再传入目标分支提交：
 
 ```yaml
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.6.2
+- uses: Mresyzz/opsscript-gate@v0.6.3
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal

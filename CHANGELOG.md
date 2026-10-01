@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.3] - 2026-10-01
+
+### Added
+- Added `opsscript-gate doctor` to diagnose Python and Docker prerequisites before a local run.
+
+### Changed
+- Expanded package and Marketplace keywords for shell installers, ShellCheck users, portability, and BusyBox.
+- Clarified the Action description around shell installer runtime compatibility.
+
 ## [0.6.2] - 2026-10-01
 
 ### Changed

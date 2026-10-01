@@ -26,7 +26,7 @@ Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?
 
 ---
 
-## Current release: v0.6.2
+## Current release: v0.6.3
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
 saved reports, and changed-script selection for pull requests. The project controls
@@ -34,6 +34,7 @@ were introduced in v0.5.0; projects on v0.4.1 and earlier do not include them.
 
 ```bash
 opsscript-gate init
+opsscript-gate doctor
 opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
@@ -41,6 +42,7 @@ opsscript-gate run --format json --output reports/compatibility.json
 `init` creates `.opsscript-gate.json` and a GitHub Actions workflow without replacing
 existing files. Review its exclusions (`tests/*`, `examples/*`) and offline network
 default before running. No Docker is required for `init` or `--dry-run`.
+Use `opsscript-gate doctor` to check Python and Docker before a real run.
 
 Useful for standalone installers, container entrypoints and release scripts that
 must work on both GNU/Linux and Alpine/BusyBox. Each script runs independently;
@@ -69,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.6.2
+      - uses: Mresyzz/opsscript-gate@v0.6.3
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -80,7 +82,7 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.6.2
+      - uses: Mresyzz/opsscript-gate@v0.6.3
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -111,7 +113,7 @@ unrelated scripts:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.6.2
+      - uses: Mresyzz/opsscript-gate@v0.6.3
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
@@ -322,6 +324,12 @@ Customize the matrix at any time via `--matrix` or Action input `matrix`.
 ---
 
 ## CLI reference
+
+Check local prerequisites before starting containers:
+
+```text
+opsscript-gate doctor [--format table|json]
+```
 
 ```text
 usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]

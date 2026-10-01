@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.6.2
+      - uses: Mresyzz/opsscript-gate@v0.6.3
         with:
           config: .opsscript-gate.json
 """,
