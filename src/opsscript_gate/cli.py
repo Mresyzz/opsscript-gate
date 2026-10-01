@@ -9,7 +9,7 @@ from pathlib import Path
 
 from opsscript_gate import __version__
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
-from opsscript_gate.config import DEFAULTS, PRESETS, init_project, load_config
+from opsscript_gate.config import DEFAULTS, PRESETS, init_project, load_config, validate_packages
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
     emit_github_annotations,
@@ -122,6 +122,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Network mode for containers: 'bridge' or 'none' (default: bridge)",
     )
     run_parser.add_argument(
+        "--packages",
+        action="append",
+        default=None,
+        help="Optional comma-separated packages to install in each container before running (repeatable; requires network=bridge)",
+    )
+    run_parser.add_argument(
         "--changed-since",
         help="Only test shell scripts changed between this Git revision and HEAD",
     )
@@ -141,6 +147,19 @@ def parse_matrix_argument(matrix_raw: str | None) -> list[str]:
         return DEFAULT_MATRIX
     images = [img.strip() for img in matrix_raw.split(",") if img.strip()]
     return images if images else DEFAULT_MATRIX
+
+
+def parse_packages_argument(packages_raw: list[str] | None) -> list[str]:
+    """Parse repeated comma/newline-separated package arguments."""
+    if not packages_raw:
+        return []
+    packages: list[str] = []
+    for raw in packages_raw:
+        for package in raw.replace("\r", "\n").replace(",", "\n").split("\n"):
+            name = package.strip()
+            if name:
+                packages.append(name)
+    return validate_packages(packages)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"{key.replace('_', '-')} must be positive")
             if args.network not in ("bridge", "none"):
                 raise ValueError("network must be bridge or none")
+            args.packages = parse_packages_argument(args.packages)
+            if args.packages and args.network == "none":
+                raise ValueError("packages require network=bridge")
             if args.matrix is not None and not any(x.strip() for x in args.matrix.split(",")):
                 raise ValueError("matrix must contain at least one image")
         except ValueError as err:
@@ -263,13 +285,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
                     "executions": len(target_scripts) * len(matrix), "shell": args.shell,
-                    "network": args.network, "timeout": args.timeout}
+                    "network": args.network, "packages": args.packages, "timeout": args.timeout}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
                 + f"\nImages: {', '.join(matrix)}\nContainer executions: {plan['executions']}"
+                + (f"\nPackages: {', '.join(args.packages)}" if args.packages else "")
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s"
             )
             return 0 if publish_output(output, args.output) else 1
@@ -292,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
                     mem_limit=args.mem_limit,
                     pids_limit=args.pids_limit,
                     network=args.network,
+                    packages=args.packages,
                 )
             except DockerDaemonError as err:
                 sys.stderr.write(f"Docker Error: {err}\n")
@@ -336,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
                     mem_limit=args.mem_limit,
                     pids_limit=args.pids_limit,
                     network=args.network,
+                    packages=args.packages,
                 )
             except DockerDaemonError as err:
                 sys.stderr.write(f"Docker Error: {err}\n")

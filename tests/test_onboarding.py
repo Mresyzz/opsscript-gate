@@ -69,7 +69,8 @@ def test_init_existing_workflow_leaves_config_absent(project):
 
 @pytest.mark.parametrize("config", [[], {"typo": 1}, {"timeout": True},
     {"jobs": 0}, {"exclude": "tests/*"}, {"shell": "fish"}, {"network": "host"},
-    {"preset": "unknown"}, {"matrix": "alpine", "preset": "minimal"}])
+    {"preset": "unknown"}, {"matrix": "alpine", "preset": "minimal"},
+    {"packages": "curl"}, {"packages": ["curl; touch pwned"]}])
 def test_invalid_config(project, config):
     Path(CONFIG_NAME).write_text(json.dumps(config))
     with patch("opsscript_gate.cli.run_matrix") as run:
@@ -86,6 +87,21 @@ def test_config_cli_precedence_and_saved_plan(project, capsys):
     assert plan == json.loads(capsys.readouterr().out)
     assert plan["matrix"] == ["custom:1"]
     assert plan["timeout"] == 9
+
+
+def test_packages_are_forwarded_and_visible_in_dry_run(project, capsys):
+    assert main([
+        "run", "install.sh", "--dry-run", "--format", "json",
+        "--packages", "curl,ca-certificates", "--packages", "tar",
+    ]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["packages"] == ["curl", "ca-certificates", "tar"]
+
+
+def test_packages_reject_offline_network(project):
+    with patch("opsscript_gate.cli.run_matrix") as run:
+        assert main(["run", "install.sh", "--packages", "curl", "--network", "none"]) == 1
+        run.assert_not_called()
 
 
 def test_preset_overrides_config_matrix(project, capsys):

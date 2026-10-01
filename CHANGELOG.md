@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Added opt-in `packages` setup for installing validated package names with
+  `apt-get` or `apk` before each container run; package setup requires bridge
+  networking and leaves existing offline runs unchanged.
+
 ## [0.7.0] - 2026-10-01
 
 ### Added

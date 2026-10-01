@@ -34,6 +34,7 @@ directory, not the config file's parent.
   "preset": "minimal",
   "shell": "auto",
   "network": "none",
+  "packages": [],
   "timeout": 30,
   "jobs": 2,
   "mem_limit": "256m",
@@ -46,7 +47,11 @@ directory, not the config file's parent.
 These are all supported keys, plus `matrix`, a comma-separated image string used
 instead of `preset`. Unknown keys and incorrect value types are errors. Numeric
 limits must be positive integers. `shell` accepts `posix`, `auto`, `shebang`;
-`network` accepts `none`, `bridge`.
+`network` accepts `none`, `bridge`. `packages` is an optional list of package
+names to install inside each test container before the target script runs. The
+runner uses `apt-get` for Debian/Ubuntu images and `apk` for Alpine images. It
+accepts package names only, never shell commands, and requires `network: bridge`.
+The default is an empty list, so existing runs remain offline and unchanged.
 
 | Preset | Images |
 | --- | --- |
@@ -114,6 +119,9 @@ documentation or application changes from starting container jobs.
     config: .opsscript-gate.json
     format: json
     output: reports/compatibility.json
+    packages: |
+      curl
+      ca-certificates
     exclude: |
       tests/*
       examples/*

@@ -47,7 +47,10 @@ Use `opsscript-gate doctor` to check Python and Docker before a real run.
 Useful for standalone installers, container entrypoints and release scripts that
 must work on both GNU/Linux and Alpine/BusyBox. Each script runs independently;
 repository files, sibling scripts and project dependencies are **not** mounted.
-See [configuration and migration](docs/configuration.md) and
+If an installer needs a small, explicit set of tools such as `curl`, pass
+`packages` in the config or Action input; the runner installs them with the
+image's native package manager before testing. Package setup is opt-in and
+requires bridge networking. See [configuration and migration](docs/configuration.md) and
 [why a shell script works on Ubuntu but fails on Alpine](docs/troubleshooting.md).
 
 ## Quickstart

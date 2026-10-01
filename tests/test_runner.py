@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from docker.errors import DockerException
 
-from opsscript_gate.cli import build_parser, main, parse_matrix_argument
+from opsscript_gate.cli import build_parser, main, parse_matrix_argument, parse_packages_argument
 from opsscript_gate.discovery import discover_scripts, is_shell_script
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, MultiScriptReport, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint, REMEDIATION_RULES
@@ -43,6 +43,7 @@ from opsscript_gate.runner import (
     run_matrix,
     run_on_distro,
     sanitize_diagnostic_text,
+    _wrap_with_package_setup,
 )
 
 
@@ -195,6 +196,50 @@ def test_run_on_distro_pass_mock(tmp_path):
 
     # Verify zero-zombie container removal
     mock_container.remove.assert_called_once_with(force=True)
+
+
+def test_run_on_distro_package_setup_wraps_command(tmp_path):
+    script_file = tmp_path / "test.sh"
+    script_file.write_text("#!/bin/sh\necho OK\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.logs.return_value = b"OK\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(
+        mock_client,
+        str(script_file),
+        "alpine:3.20",
+        packages=["curl", "ca-certificates"],
+        network="bridge",
+    )
+
+    assert result.status == DistroStatus.PASS
+    command = mock_client.containers.create.call_args.kwargs["command"]
+    assert command[:2] == ["/bin/sh", "-c"]
+    assert "apt-get install" in command[2]
+    assert "apk add --no-cache curl ca-certificates" in command[2]
+    assert "exec /bin/sh -c" in command[2]
+
+
+def test_package_setup_requires_network(tmp_path):
+    script_file = tmp_path / "test.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    result = run_on_distro(
+        mock.MagicMock(), str(script_file), "alpine:3.20", packages=["curl"], network="none"
+    )
+    assert result.status == DistroStatus.ERROR
+    assert "requires network" in (result.error_message or "")
+
+
+def test_package_setup_quotes_and_validates_names():
+    wrapped = _wrap_with_package_setup(["/bin/sh", "-c", "echo ok"], ["ca-certificates"])
+    assert "ca-certificates" in wrapped[2]
+    with pytest.raises(ValueError):
+        _wrap_with_package_setup(["/bin/sh"], ["curl;touch /tmp/pwned"])
 
 
 def test_run_on_distro_fail_mock(tmp_path):
@@ -370,6 +415,14 @@ def test_parse_matrix_argument():
     assert parse_matrix_argument(None) == DEFAULT_MATRIX
     assert parse_matrix_argument("") == DEFAULT_MATRIX
     assert parse_matrix_argument("debian:12-slim, alpine:3.20") == ["debian:12-slim", "alpine:3.20"]
+
+
+def test_parse_packages_argument():
+    assert parse_packages_argument(["curl, ca-certificates", "tar"]) == [
+        "curl", "ca-certificates", "tar"
+    ]
+    with pytest.raises(ValueError, match="package"):
+        parse_packages_argument(["curl && touch pwned"])
 
 
 def test_cli_help(capsys):

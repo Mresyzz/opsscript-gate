@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import tempfile
 import time
 from typing import Any, Sequence
@@ -12,6 +13,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
+from opsscript_gate.config import PACKAGE_NAME_RE
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -574,6 +576,27 @@ def _resolve_shell_command(
     return None, f"Unsupported shell mode: {mode}"
 
 
+def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) -> list[str]:
+    """Preinstall explicit packages with the image's native package manager."""
+    if not packages:
+        return list(command)
+
+    if any(not isinstance(package, str) or not PACKAGE_NAME_RE.fullmatch(package) for package in packages):
+        raise ValueError("Invalid package name")
+
+    package_args = " ".join(shlex.quote(package) for package in packages)
+    install = (
+        "if command -v apt-get >/dev/null 2>&1; then "
+        f"apt-get update && apt-get install -y --no-install-recommends {package_args} "
+        "&& rm -rf /var/lib/apt/lists/*; "
+        "elif command -v apk >/dev/null 2>&1; then "
+        f"apk add --no-cache {package_args}; "
+        "else echo 'No supported package manager found (apt-get or apk)' >&2; exit 125; fi"
+    )
+    target_command = " ".join(shlex.quote(part) for part in command)
+    return ["/bin/sh", "-c", f"{install} && exec {target_command}"]
+
+
 def run_on_distro(
     client: docker.DockerClient,
     script_path: str,
@@ -585,12 +608,24 @@ def run_on_distro(
     mem_limit: str = "256m",
     pids_limit: int = 128,
     network: str = "bridge",
+    packages: Sequence[str] | None = None,
     prepared_script_path: str | None = None,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
     Supports posix, shebang, and auto execution modes with strict resource limits.
     """
+    package_list = list(packages or [])
+    if package_list and network == "none":
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message="Package setup requires network mode 'bridge'",
+        )
+
     try:
         mode = ShellMode(shell_mode)
     except ValueError:
@@ -647,6 +682,7 @@ def run_on_distro(
             )
 
     safe_mount_src = normalize_host_path_for_docker(mount_src)
+    container_command = _wrap_with_package_setup(command, package_list)
 
     # Security: Strict unprivileged options and read-only mount
     volumes = {
@@ -667,7 +703,7 @@ def run_on_distro(
         try:
             container = client.containers.create(
                 image=distro,
-                command=command,
+                command=container_command,
                 volumes=volumes,
                 environment=environment,
                 stdin_open=False,
@@ -684,7 +720,7 @@ def run_on_distro(
             client.images.pull(distro)
             container = client.containers.create(
                 image=distro,
-                command=command,
+                command=container_command,
                 volumes=volumes,
                 environment=environment,
                 stdin_open=False,
@@ -799,6 +835,7 @@ def run_matrix(
     mem_limit: str = "256m",
     pids_limit: int = 128,
     network: str = "bridge",
+    packages: Sequence[str] | None = None,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
@@ -817,6 +854,9 @@ def run_matrix(
             parsed_shebang = inspect_shebang(abs_script)
 
     distro_list = list(matrix) if matrix else DEFAULT_MATRIX
+    package_list = list(packages or [])
+    if package_list and network == "none":
+        raise ValueError("Package setup requires network mode 'bridge'")
     docker_client = client or get_docker_client()
 
     effective_jobs = jobs if (jobs is not None and jobs > 0) else min(2, len(distro_list))
@@ -859,6 +899,7 @@ def run_matrix(
             mem_limit=mem_limit,
             pids_limit=pids_limit,
             network=network,
+            packages=package_list,
             prepared_script_path=prepared_script,
         )
         return index, res
