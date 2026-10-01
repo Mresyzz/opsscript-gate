@@ -8,6 +8,7 @@ from opsscript_gate.cli import main
 from opsscript_gate.config import CONFIG_NAME, init_project, load_config
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts, is_shell_script
 from opsscript_gate.models import RunReport, SingleResult, DistroStatus
+from opsscript_gate.runner import DockerDaemonError
 
 
 @pytest.fixture
@@ -33,6 +34,27 @@ def test_init_preview_and_no_overwrite(project, capsys):
     original = Path(CONFIG_NAME).read_bytes()
     assert main(["init"]) == 1
     assert Path(CONFIG_NAME).read_bytes() == original
+
+
+def test_doctor_reports_local_prerequisites(project, capsys):
+    with patch("opsscript_gate.cli.get_docker_client"):
+        assert main(["doctor"]) == 0
+    output = capsys.readouterr().out
+    assert "OpsScript Gate doctor" in output
+    assert "[PASS] python" in output
+    assert "[PASS] docker" in output
+    assert "No project config (optional)" in output
+
+
+def test_doctor_json_reports_docker_failure(project, capsys):
+    with patch(
+        "opsscript_gate.cli.get_docker_client",
+        side_effect=DockerDaemonError("Docker is not running"),
+    ):
+        assert main(["doctor", "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "FAIL"
+    assert next(check for check in report["checks"] if check["name"] == "docker")["ok"] is False
 
 
 def test_init_existing_workflow_leaves_config_absent(project):

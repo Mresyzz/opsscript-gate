@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opsscript-gate"
-version = "0.6.2"
+version = "0.6.3"
 description = "Run Linux shell scripts in Debian, Ubuntu and Alpine containers to catch runtime compatibility failures before merge"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,6 +29,10 @@ keywords = [
     "ubuntu",
     "alpine",
     "shellcheck-alternative",
+    "shellcheck",
+    "shell-portability",
+    "installer-testing",
+    "busybox",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
