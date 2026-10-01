@@ -22,6 +22,8 @@ copy the [zero-configuration workflow](.github/workflow-templates/opsscript-gate
 shell files change, uses offline containers by default, and uploads a report that can be attached to a PR.
 No account, API key, or service signup is required.
 
+Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate) checks this repository without executing code or requiring a login.
+
 ---
 
 ## Current release: v0.6.1
