@@ -1,14 +1,10 @@
 # Changelog
 
-## [Unreleased]
-
-### Added
-- Added SARIF 2.1.0 output for location-aware GitHub Code Scanning integration.
-
 ## [0.7.0] - 2026-10-01
 
 ### Added
 - Added `opsscript-gate doctor` to diagnose Python and Docker prerequisites before a local run.
+- Added SARIF 2.1.0 output for location-aware GitHub Code Scanning integration.
 
 ### Changed
 - Expanded package and Marketplace keywords for shell installers, ShellCheck users, portability, and BusyBox.
