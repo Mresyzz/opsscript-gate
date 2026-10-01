@@ -11,7 +11,7 @@ opsscript-gate run --dry-run
 ```
 
 `init` refuses to overwrite either `.opsscript-gate.json` or
-`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.6.1 tag.
+`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.6.2 tag.
 
 The generated config uses the two-image `minimal` preset, honors recognized shell
 shebangs, disables networking, and excludes `tests/*` and `examples/*`. Review these
@@ -95,7 +95,7 @@ For pull requests, set `changed-since` to the base commit and fetch full Git his
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.6.1
+- uses: Mresyzz/opsscript-gate@v0.6.2
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
@@ -105,7 +105,7 @@ The Action passes when no changed shell scripts are selected. This keeps unrelat
 documentation or application changes from starting container jobs.
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.6.1
+- uses: Mresyzz/opsscript-gate@v0.6.2
   with:
     config: .opsscript-gate.json
     format: json

@@ -26,7 +26,7 @@ Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?
 
 ---
 
-## Current release: v0.6.1
+## Current release: v0.6.2
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
 saved reports, and changed-script selection for pull requests. The project controls
@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: Mresyzz/opsscript-gate@v0.6.1
+      - uses: Mresyzz/opsscript-gate@v0.6.2
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -80,7 +80,7 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.6.1
+      - uses: Mresyzz/opsscript-gate@v0.6.2
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -111,7 +111,7 @@ unrelated scripts:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.6.1
+      - uses: Mresyzz/opsscript-gate@v0.6.2
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
