@@ -8,9 +8,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 适合独立安装脚本、容器入口脚本和发布脚本。每次只挂载目标脚本，
 不挂载整个仓库；依赖其他仓库文件的脚本需要现有项目测试配合。
 
-## 当前版本 v0.6.0
+## 当前版本 v0.6.1
 
-v0.6.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
+v0.6.1 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -25,7 +25,7 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.6.0`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.6.1`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 
@@ -51,7 +51,7 @@ opsscript-gate run --format json --output reports/compatibility.json
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.6.0
+- uses: Mresyzz/opsscript-gate@v0.6.1
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
