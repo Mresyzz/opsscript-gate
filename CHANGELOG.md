@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2] - 2026-10-01
+
+### Changed
+- Updated the published README and Action examples to the current release tag.
+- Added the InstallReady browser scanner to the package homepage and project links.
+- Made the starter workflow follow each repository's default branch.
+
 ## [0.6.1] - 2026-10-01
 
 ### Added

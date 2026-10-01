@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opsscript-gate"
-version = "0.6.1"
+version = "0.6.2"
 description = "Run Linux shell scripts in Debian, Ubuntu and Alpine containers to catch runtime compatibility failures before merge"
 readme = "README.md"
 license = { text = "MIT" }
@@ -47,7 +47,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Mresyzz/opsscript-gate"
+Homepage = "https://mresyzz.github.io/InstallReady/"
+Demo = "https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate"
 Repository = "https://github.com/Mresyzz/opsscript-gate"
 Issues = "https://github.com/Mresyzz/opsscript-gate/issues"
 Changelog = "https://github.com/Mresyzz/opsscript-gate/blob/main/CHANGELOG.md"

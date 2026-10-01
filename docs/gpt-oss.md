@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: Mresyzz/opsscript-gate@v0.6.1
+      - uses: Mresyzz/opsscript-gate@v0.6.2
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
