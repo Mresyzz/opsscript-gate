@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 CONFIG_NAME = ".opsscript-gate.json"
@@ -12,8 +13,25 @@ PRESETS = {
 DEFAULTS = {
     "matrix": None, "preset": None, "jobs": None, "timeout": 60,
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
-    "network": "bridge", "exclude": [], "max_scripts": 20,
+    "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
 }
+
+PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
+
+
+def validate_packages(value: object) -> list[str]:
+    """Validate and normalize package names used for optional container setup."""
+    if not isinstance(value, list) or not all(isinstance(p, str) for p in value):
+        raise ValueError("packages must be a list of package names")
+    packages: list[str] = []
+    for package in value:
+        name = package.strip()
+        if not name or not PACKAGE_NAME_RE.fullmatch(name):
+            raise ValueError(
+                "packages must contain nonempty package names using only letters, numbers, '+', '.', '_', ':', or '-'")
+        if name not in packages:
+            packages.append(name)
+    return packages
 
 
 def load_config(filename: str | None) -> dict:
@@ -36,6 +54,8 @@ def load_config(filename: str | None) -> dict:
         elif key == "exclude":
             if not isinstance(value, list) or not all(isinstance(p, str) and p for p in value):
                 raise ValueError("exclude must be a list of nonempty glob strings")
+        elif key == "packages":
+            validate_packages(value)
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),

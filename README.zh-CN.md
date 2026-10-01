@@ -39,7 +39,10 @@ opsscript-gate run --format json --output reports/compatibility.json
 
 生成的配置默认排除 `tests/*`、`examples/*`，使用 Debian + Alpine，尊重
 脚本 shebang，并关闭网络。请根据实际脚本审核配置；需要下载文件时启用
-`--network bridge`。保留现有无配置行为：四个发行版、POSIX shell、bridge 网络。
+`--network bridge`。安装器如果需要 `curl`、证书或其他明确工具，可以配置
+`packages`；运行器会用镜像自带的 `apt-get` 或 `apk` 安装它们。包安装是可选的，
+只接受包名，不接受 Shell 命令，并且必须使用 `bridge` 网络。保留现有无配置行为：
+四个发行版、POSIX shell、bridge 网络。
 
 ## 本轮改进
 

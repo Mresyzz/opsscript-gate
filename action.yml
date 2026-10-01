@@ -42,6 +42,10 @@ inputs:
     description: "Container network mode: 'bridge' or 'none' (default: bridge)"
     required: false
     default: ''
+  packages:
+    description: 'Optional comma- or newline-separated packages to install before running (requires network=bridge)'
+    required: false
+    default: ''
 
   config:
     description: 'Path to project JSON configuration'
@@ -97,6 +101,7 @@ runs:
         INPUT_MEM_LIMIT: ${{ inputs.mem-limit }}
         INPUT_PIDS_LIMIT: ${{ inputs.pids-limit }}
         INPUT_NETWORK: ${{ inputs.network }}
+        INPUT_PACKAGES: ${{ inputs.packages }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_PRESET: ${{ inputs.preset }}
         INPUT_EXCLUDE: ${{ inputs.exclude }}
@@ -116,6 +121,7 @@ runs:
         [ -z "$INPUT_MEM_LIMIT" ] || ARGS+=(--mem-limit "$INPUT_MEM_LIMIT")
         [ -z "$INPUT_PIDS_LIMIT" ] || ARGS+=(--pids-limit "$INPUT_PIDS_LIMIT")
         [ -z "$INPUT_NETWORK" ] || ARGS+=(--network "$INPUT_NETWORK")
+        [ -z "$INPUT_PACKAGES" ] || ARGS+=(--packages "$INPUT_PACKAGES")
         [ -z "$INPUT_MATRIX" ] || ARGS+=(--matrix "$INPUT_MATRIX")
         [ -z "$INPUT_JOBS" ] || ARGS+=(--jobs "$INPUT_JOBS")
         [ -z "$INPUT_CONFIG" ] || ARGS+=(--config "$INPUT_CONFIG")
