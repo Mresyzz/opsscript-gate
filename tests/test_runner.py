@@ -976,6 +976,22 @@ def test_integration_pass_basic():
 
 @pytest.mark.integration
 @pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
+def test_integration_package_setup(tmp_path):
+    script = tmp_path / "needs-curl.sh"
+    script.write_text("#!/bin/sh\ncurl --version >/dev/null\n", encoding="utf-8")
+    report = run_matrix(
+        str(script),
+        matrix=["alpine:3.20"],
+        packages=["curl"],
+        network="bridge",
+        timeout=60,
+    )
+    assert report.all_passed is True
+    assert report.results[0].status == DistroStatus.PASS
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
 def test_integration_fail_deps_alpine():
     fixture = os.path.join(os.path.dirname(__file__), "fixtures", "fail_deps.sh")
     report = run_matrix(fixture, matrix=["alpine:3.20"], timeout=30)
