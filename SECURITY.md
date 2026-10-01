@@ -6,8 +6,8 @@ Only the latest release of **OpsScript Gate** receives security updates and bug 
 
 | Version | Supported          |
 | :---    | :---:              |
-| 0.4.x   | :white_check_mark: |
-| < 0.4.0 | :x:                |
+| 0.7.x   | :white_check_mark: |
+| < 0.7.0 | :x:                |
 
 ---
 
