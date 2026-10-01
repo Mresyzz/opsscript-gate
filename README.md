@@ -194,6 +194,28 @@ The action also writes a markdown matrix to `$GITHUB_STEP_SUMMARY`:
 </details>
 ```
 
+### SARIF for Code Scanning
+
+Use `sarif` when the result should appear in GitHub Code Scanning or another
+SARIF-compatible viewer. Upload it explicitly with the official upload action:
+
+```yaml
+- uses: Mresyzz/opsscript-gate@v0.6.3
+  with:
+    script-path: scripts/install.sh
+    format: sarif
+    output: reports/opsscript-gate.sarif
+
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: reports/opsscript-gate.sarif
+```
+
+Each runtime failure becomes a location-aware result with the distribution,
+exit code, command, and diagnostic line. A passing matrix produces a valid SARIF
+file with no findings.
+
 ---
 
 ## Example: runtime behavior that static analysis misses
@@ -350,7 +372,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 | `-j, --jobs` | Integer | `min(2, size)` | Number of concurrent container jobs |
 | `--matrix` | String | `debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20` | Comma-separated list of Docker images |
 | `--timeout` | Integer | `60` | Hard timeout per container in seconds |
-| `--format` | Choice | `table` | Output format: `table`, `markdown`, or `json` |
+| `--format` | Choice | `table` | Output format: `table`, `markdown`, `json`, or `sarif` |
 | `--shell` | Choice | `posix` | Execution mode: `posix` (default), `shebang`, or `auto` |
 | `--mem-limit` | String | `256m` | Memory limit per container (e.g. `256m`, `512m`) |
 | `--pids-limit`| Integer | `128` | Maximum number of processes per container |

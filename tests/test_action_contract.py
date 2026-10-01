@@ -14,6 +14,7 @@ def test_action_metadata_is_valid_and_inputs_are_wired():
                  "--network", "--matrix", "--jobs", "--config", "--preset",
                  "--max-scripts", "--output", "--exclude"):
         assert flag in run_text
+    assert "json, or sarif" in text
     assert "--changed-since" in run_text
 
 

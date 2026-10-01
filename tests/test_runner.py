@@ -19,8 +19,10 @@ from opsscript_gate.reporter import (
     format_github_annotations,
     format_github_summary,
     format_json,
+    format_multi_sarif,
     format_multi_github_summary,
     format_multi_terminal_table,
+    format_sarif,
     format_terminal_table,
     write_github_step_summary,
 )
@@ -298,6 +300,54 @@ def test_reporter_json():
     assert data["all_passed"] is True
     assert len(data["results"]) == 1
     assert data["results"][0]["status"] == "PASS"
+
+
+def test_reporter_sarif_contains_failure_location_and_metadata():
+    result = SingleResult(
+        "alpine:3.20",
+        DistroStatus.FAIL,
+        127,
+        0.42,
+        diagnostic=FailureDiagnostic(
+            kind="missing_command",
+            message="apt-get: command not found",
+            command="apt-get",
+            line=4,
+            distro="alpine:3.20",
+            hint="Use apk instead of apt-get.",
+        ),
+    )
+    report = RunReport([SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.2), result])
+
+    payload = json.loads(format_sarif(report, script_path="./scripts/install.sh"))
+    assert payload["$schema"].endswith("sarif-2.1.0.json")
+    assert payload["version"] == "2.1.0"
+    finding = payload["runs"][0]["results"][0]
+    assert finding["ruleId"] == "OSG001"
+    assert finding["level"] == "error"
+    assert finding["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "scripts/install.sh"
+    assert finding["locations"][0]["physicalLocation"]["region"]["startLine"] == 4
+    assert finding["properties"]["distribution"] == "alpine:3.20"
+    assert finding["properties"]["command"] == "apt-get"
+
+
+def test_reporter_multi_sarif_keeps_script_paths():
+    report = MultiScriptReport(
+        reports={
+            "install.sh": RunReport([SingleResult("alpine:3.20", DistroStatus.FAIL, 1, 0.1)]),
+            "scripts/setup.sh": RunReport([SingleResult("debian:12-slim", DistroStatus.TIMED_OUT, None, 5.0)]),
+        },
+        total_duration=5.1,
+    )
+
+    payload = json.loads(format_multi_sarif(report))
+    results = payload["runs"][0]["results"]
+    assert len(results) == 2
+    paths = {
+        result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        for result in results
+    }
+    assert paths == {"install.sh", "scripts/setup.sh"}
 
 
 def test_write_github_step_summary(tmp_path):
