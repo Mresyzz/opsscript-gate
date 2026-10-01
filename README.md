@@ -72,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: Mresyzz/opsscript-gate@v0.6.3
 ```
 
@@ -113,6 +115,7 @@ unrelated scripts:
 ```yaml
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: Mresyzz/opsscript-gate@v0.6.3
         with:
