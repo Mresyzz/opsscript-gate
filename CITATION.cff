@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Mresyzz
     given-names: Mresy
-version: 0.6.3
+version: 0.7.0
 date-released: 2026-10-01
 repository-code: https://github.com/Mresyzz/opsscript-gate
 url: https://github.com/Mresyzz/opsscript-gate
