@@ -18,9 +18,9 @@
 It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
 
 If your repository contains an installer, bootstrap script, or shell entrypoint, the fastest path is to
-copy the [zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml). It only runs when
-shell files change, uses offline containers by default, and uploads a report that can be attached to a PR.
-No account, API key, or service signup is required.
+open the [InstallReady scanner](https://mresyzz.github.io/InstallReady/), enter `owner/repository`, and
+choose **Add workflow on GitHub**. It generates a reviewable workflow without an account, API key, or
+service signup. You can also copy the maintained [zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml).
 
 Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate) checks this repository without executing code or requiring a login.
 
@@ -56,8 +56,9 @@ See [configuration and migration](docs/configuration.md) and
 
 Add this workflow to `.github/workflows/shell-compat.yml`:
 
-You can also select **OpsScript Gate shell compatibility** from GitHub's workflow templates, or copy the
-maintained [starter workflow](.github/workflow-templates/opsscript-gate.yml).
+The repository includes a maintained [workflow template](.github/workflow-templates/opsscript-gate.yml).
+For a one-click setup in another public repository, use the InstallReady scanner above; it opens GitHub's
+workflow editor with the generated file ready to review.
 
 You can copy the maintained example from [`examples/github-actions/workflow.yml`](examples/github-actions/workflow.yml)
 and change the `script-path`, or use the minimal workflow below.
@@ -382,14 +383,6 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 
 Explicit CLI options override project settings. Explicit script paths bypass discovery
 and its exclusions. See [complete configuration semantics](docs/configuration.md).
-
-## Downstream example
-
-[`Mresyzz/linux-dev-bootstrap`](https://github.com/Mresyzz/linux-dev-bootstrap) contains a workflow that validates `install.sh` across the default Debian, Ubuntu, and Alpine matrix.
-
-See the downstream workflow: [`.github/workflows/test.yml`](https://github.com/Mresyzz/linux-dev-bootstrap/blob/main/.github/workflows/test.yml).
-
----
 
 ## 🧪 Development & Testing
 
