@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.3] - 2026-10-02
+
+- Corrected the PyPI homepage and demo links to point to the OpsScript Gate Pages site.
+- Refreshed all generated examples and release metadata to v0.8.3.
+
 ## [0.8.2] - 2026-10-02
 
 ### Fixed
