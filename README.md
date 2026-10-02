@@ -2,7 +2,7 @@
 
 [Live demo](https://mresyzz.github.io/opsscript-gate/) · [简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
 
-> **OpsScript Gate is a cross-distro shell script runtime compatibility checker.** It is a GitHub Action and Python CLI that runs shell installers in real Debian, Ubuntu, and Alpine containers. ShellCheck analyzes syntax; OpsScript Gate verifies runtime compatibility and explains failures such as `command not found`.
+> **OpsScript Gate is a cross-distro shell script runtime compatibility checker.** Use it for cross-distro shell testing: the GitHub Action and Python CLI run shell installers in real Debian, Ubuntu, and Alpine containers. ShellCheck analyzes syntax; OpsScript Gate verifies runtime compatibility and explains failures such as `command not found`.
 
 [![CI](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml)
 [![Demo](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml)
@@ -22,6 +22,8 @@ If you arrived here from an error or a search, these are the problems this proje
 - `command not found` when a shell script runs in Docker or GitHub Actions
 - `apt-get: not found` on Alpine, or `apk: not found` on Debian/Ubuntu
 - a shell installer that passes ShellCheck but fails at runtime
+- a shell script compatibility checker that tests runtime commands, not only syntax
+- cross-distro shell testing for installers, bootstrap scripts, and entrypoints
 - testing one shell script across real Debian, Ubuntu, and Alpine containers
 - replacing a hand-written cross-distribution CI matrix with one reusable action
 
