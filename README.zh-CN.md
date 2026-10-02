@@ -1,4 +1,7 @@
-# OpsScript Gate：在 Debian、Ubuntu、Alpine 真实运行 Shell 脚本，诊断 `command not found`
+# OpsScript Gate：cross-distro shell script runtime compatibility checker
+
+OpsScript Gate 是跨发行版 Shell 脚本运行时兼容性检查器（cross-distro shell script runtime compatibility checker）。
+它在 Debian、Ubuntu、Alpine 中真实运行脚本，诊断 `command not found`。
 
 [English](README.md) · [按错误排查：`command not found` / `apt-get: not found`](docs/command-not-found.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md) · [自托管模型安装脚本指南](docs/gpt-oss.md)
 

@@ -1,6 +1,6 @@
 # OpsScript Gate
 
-> GitHub Action and Python CLI that runs shell installers in real Debian, Ubuntu, and Alpine containers to find runtime compatibility failures such as `command not found`.
+> OpsScript Gate is a cross-distro shell script runtime compatibility checker and GitHub Action for Debian, Ubuntu, and Alpine. It finds runtime failures such as `command not found`.
 
 ## Use this project when
 
