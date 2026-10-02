@@ -805,6 +805,32 @@ jobs:
       // 1. Critical Deadlock & Abort Check: read under set -e
       const isSetEReadAbort = hasRead && hasSetE;
 
+      // 2. Critical Dependency Check: Missing binaries in minimal containers
+      // Minimal base images (debian-slim, ubuntu, alpine) strictly omit curl, jq, git, sudo, python, etc.
+      const uninstalledBins = ["curl", "jq", "git", "sudo", "python", "python3", "docker"];
+      let missingBin = null;
+      let missingBinLine = 1;
+
+      const lines = val.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('#') || !line) continue;
+        for (const bin of uninstalledBins) {
+          // Check if command is called directly or in a pipe
+          const regex = new RegExp('(?:^|[|;&]\\s*)' + bin + '(?:\\s+|$)', 'i');
+          if (regex.test(line)) {
+            // Check if installed beforehand in script
+            const hasInstall = val.includes('apt-get install') && val.includes(bin) || val.includes('apk add') && val.includes(bin);
+            if (!hasInstall) {
+              missingBin = bin;
+              missingBinLine = i + 1;
+              break;
+            }
+          }
+        }
+        if (missingBin) break;
+      }
+
       if (val.includes('apt-get') && !val.includes('apk')) {
         isAlpineFail = true;
         alpineReason = "apt-get: not found (line 4)";
@@ -823,7 +849,7 @@ jobs:
 
       const scText = scWarnings.length > 0 
         ? "$ shellcheck script.sh\n" + scWarnings.join('\n') 
-        : "$ shellcheck script.sh\nNo issues detected. Syntax conforms to grammar.";
+        : "$ shellcheck script.sh\nNo issues detected. Syntax conforms to grammar.\n(Blind spot: linters verify syntax tokens, cannot check if binaries exist)";
 
       let logs = [];
       let overallStatus = "ALL DISTROS PASSED";
@@ -832,7 +858,24 @@ jobs:
       let diagCode = "Exit Code 0";
       let diagMsg = "";
 
-      if (isSetEReadAbort) {
+      if (missingBin) {
+        // Missing command caught by container execution!
+        overallStatus = `MISSING BINARY: ${missingBin} (ALL FAILED)`;
+        statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
+        showDiag = true;
+        diagCode = "Exit Code 127";
+        diagMsg = `Standard minimal container images (debian-slim, ubuntu, alpine) do not include '${missingBin}' by default. ShellCheck verified the syntax AST, but OpsScript Gate detected that '${missingBin}' is missing at line ${missingBinLine}.`;
+
+        const distros = [
+          { d: "debian:12-slim", t: "0.15s" },
+          { d: "ubuntu:22.04", t: "0.16s" },
+          { d: "ubuntu:24.04", t: "0.16s" },
+          { d: "alpine:3.20", t: "0.11s" }
+        ];
+        distros.forEach(item => {
+          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[' + item.d + '] FAIL (' + item.t + ') - Exit 127</span><br><span class="opacity-95 font-mono text-[11px]">  /tmp/target_script.sh: line ' + missingBinLine + ': ' + missingBin + ': not found</span></div>');
+        });
+      } else if (isSetEReadAbort) {
         // True Unix behavior: read returns 1 on EOF (from </dev/null), set -e aborts script instantly!
         overallStatus = "STDIN DEADLOCK INTERCEPTED (ALL FAILED)";
         statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
