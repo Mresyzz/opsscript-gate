@@ -190,6 +190,30 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
+      - name: Check Marketplace listing freshness
+        if: steps.release-check.outputs.is_new_release == 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-check.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          listing_url="https://github.com/marketplace/actions/opsscript-gate"
+          listing="$(curl -fsSL "$listing_url")"
+          if grep -Fq "$RELEASE_TAG" <<<"$listing"; then
+            echo "Marketplace listing references $RELEASE_TAG."
+            exit 0
+          fi
+
+          echo "::warning::Marketplace listing is not yet showing $RELEASE_TAG. GitHub requires the release UI checkbox to publish an Action release."
+          {
+            echo "## Marketplace publication"
+            echo
+            echo "The release **$RELEASE_TAG** is live, but the Marketplace page has not caught up."
+            echo "Open the release editor, enable **Publish this Action to the GitHub Marketplace**, choose the categories, and save it."
+            echo
+            echo "[Open release editor](https://github.com/Mresyzz/opsscript-gate/releases/edit/${{ steps.release-check.outputs.release_tag }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish-pypi:
     name: Publish to PyPI via OIDC
     needs: [test, build]
