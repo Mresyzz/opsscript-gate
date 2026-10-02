@@ -8,7 +8,7 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 适合独立安装脚本、容器入口脚本和发布脚本。每次只挂载目标脚本，
 不挂载整个仓库；依赖其他仓库文件的脚本需要现有项目测试配合。
 
-也可以直接打开 [InstallReady 在线扫描器](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate)，无需登录即可检查公开仓库。
+也可以直接打开 [OpsScript Gate 在线演示](https://mresyzz.github.io/opsscript-gate/)，先查看 ShellCheck 与运行时验证的差异，再复制 workflow 到自己的仓库。
 
 ## 当前版本 v0.8.2
 
