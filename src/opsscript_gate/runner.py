@@ -587,7 +587,8 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
     package_args = " ".join(shlex.quote(package) for package in packages)
     install = (
         "if command -v apt-get >/dev/null 2>&1; then "
-        f"apt-get update && apt-get install -y --no-install-recommends {package_args} "
+        "apt-get -o APT::Sandbox::User=root update && "
+        f"apt-get -o APT::Sandbox::User=root install -y --no-install-recommends {package_args} "
         "&& rm -rf /var/lib/apt/lists/*; "
         "elif command -v apk >/dev/null 2>&1; then "
         f"apk add --no-cache {package_args}; "
