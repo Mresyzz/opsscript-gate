@@ -1,9 +1,13 @@
-# OpsScript Gate：GitHub Action 跨发行版 Shell 安装脚本测试
+# OpsScript Gate：在 Debian、Ubuntu、Alpine 真实运行 Shell 脚本，诊断 `command not found`
 
-[English](README.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md) · [自托管模型安装脚本指南](docs/gpt-oss.md)
+[English](README.md) · [按错误排查：`command not found` / `apt-get: not found`](docs/command-not-found.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md) · [自托管模型安装脚本指南](docs/gpt-oss.md)
 
 在 Debian、Ubuntu、Alpine 容器里实际运行 Shell 脚本，提前发现缺失命令、
 Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
+
+如果你搜索的是“在 Debian/Ubuntu/Alpine 真实运行 shell 脚本”“Alpine 上
+`apt-get: not found`”“ShellCheck 通过但 CI 运行失败”，请直接看
+[按错误排查的指南](docs/command-not-found.md)。
 
 适合独立安装脚本、容器入口脚本和发布脚本。每次只挂载目标脚本，
 不挂载整个仓库；依赖其他仓库文件的脚本需要现有项目测试配合。

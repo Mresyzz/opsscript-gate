@@ -1,6 +1,6 @@
 {
   "name": "OpsScript Gate shell compatibility",
-  "description": "Run shell scripts in Debian, Ubuntu and Alpine containers on changes to shell files.",
+  "description": "Run shell scripts in Debian, Ubuntu and Alpine containers to catch command not found and runtime compatibility failures.",
   "iconName": "octicon-shield-check",
   "categories": ["Continuous integration", "Testing"],
   "filePatterns": [".*\\.sh$", ".*\\.bash$"]
