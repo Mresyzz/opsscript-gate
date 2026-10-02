@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Run shell installers in Debian, Ubuntu, and Alpine to catch command not found, package-manager, and POSIX runtime failures in CI.'
+description: 'Cross-distro shell script runtime compatibility checker and GitHub Action for Debian, Ubuntu, and Alpine; catches command not found and other runtime failures.'
 author: 'Mresyzz'
 branding:
   icon: 'shield'
