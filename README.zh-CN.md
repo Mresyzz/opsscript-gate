@@ -10,9 +10,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 
 也可以直接打开 [InstallReady 在线扫描器](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate)，无需登录即可检查公开仓库。
 
-## 当前版本 v0.7.0
+## 当前版本 v0.8.0
 
-v0.7.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
+v0.8.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -28,7 +28,7 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.7.0`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.8.0`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 `opsscript-gate doctor` 可以在真实运行前检查 Python 和 Docker。
@@ -65,7 +65,7 @@ Docker daemon 和可选的项目配置。
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.7.0
+- uses: Mresyzz/opsscript-gate@v0.8.0
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal

@@ -12,7 +12,7 @@ opsscript-gate run --dry-run
 ```
 
 `init` refuses to overwrite either `.opsscript-gate.json` or
-`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.7.0 tag.
+`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.8.0 tag.
 
 `doctor` checks Python and Docker connectivity without executing repository scripts.
 Use `opsscript-gate doctor --format json` when collecting a support report.
@@ -51,7 +51,7 @@ limits must be positive integers. `shell` accepts `posix`, `auto`, `shebang`;
 names to install inside each test container before the target script runs. The
 runner uses `apt-get` for Debian/Ubuntu images and `apk` for Alpine images. It
 accepts package names only, never shell commands, and requires `network: bridge`.
-The default is an empty list, so existing runs remain offline and unchanged.
+The default is an empty list, so existing networking settings and execution remain unchanged.
 
 | Preset | Images |
 | --- | --- |
@@ -104,7 +104,7 @@ For pull requests, set `changed-since` to the base commit and fetch full Git his
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.7.0
+- uses: Mresyzz/opsscript-gate@v0.8.0
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
@@ -114,11 +114,12 @@ The Action passes when no changed shell scripts are selected. This keeps unrelat
 documentation or application changes from starting container jobs.
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.7.0
+- uses: Mresyzz/opsscript-gate@v0.8.0
   with:
     config: .opsscript-gate.json
     format: json
     output: reports/compatibility.json
+    network: bridge
     packages: |
       curl
       ca-certificates

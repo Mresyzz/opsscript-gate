@@ -587,8 +587,13 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
     package_args = " ".join(shlex.quote(package) for package in packages)
     install = (
         "if command -v apt-get >/dev/null 2>&1; then "
-        f"apt-get update && apt-get install -y --no-install-recommends {package_args} "
-        "&& rm -rf /var/lib/apt/lists/*; "
+        "mkdir -p /tmp/opsscript-apt-archives/partial && "
+        "apt-get -o APT::Sandbox::User=root "
+        "-o Dir::Cache::archives=/tmp/opsscript-apt-archives/ update && "
+        f"apt-get -o APT::Sandbox::User=root "
+        "-o Dir::Cache::archives=/tmp/opsscript-apt-archives/ "
+        f"install -y --no-install-recommends {package_args} && "
+        "rm -rf /tmp/opsscript-apt-archives /var/lib/apt/lists/*; "
         "elif command -v apk >/dev/null 2>&1; then "
         f"apk add --no-cache {package_args}; "
         "else echo 'No supported package manager found (apt-get or apk)' >&2; exit 125; fi"

@@ -220,7 +220,7 @@ def test_run_on_distro_package_setup_wraps_command(tmp_path):
     assert result.status == DistroStatus.PASS
     command = mock_client.containers.create.call_args.kwargs["command"]
     assert command[:2] == ["/bin/sh", "-c"]
-    assert "apt-get install" in command[2]
+    assert "Dir::Cache::archives=/tmp/opsscript-apt-archives/" in command[2]
     assert "apk add --no-cache curl ca-certificates" in command[2]
     assert "exec /bin/sh -c" in command[2]
 
@@ -976,17 +976,22 @@ def test_integration_pass_basic():
 
 @pytest.mark.integration
 @pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
-def test_integration_package_setup(tmp_path):
+@pytest.mark.parametrize("image", DEFAULT_MATRIX)
+def test_integration_package_setup(tmp_path, image):
     script = tmp_path / "needs-curl.sh"
-    script.write_text("#!/bin/sh\ncurl --version >/dev/null\n", encoding="utf-8")
+    script.write_text(
+        "#!/usr/bin/env bash\nset -e\ncurl --version >/dev/null\ntar --version >/dev/null\n"
+        "test -s /etc/ssl/certs/ca-certificates.crt\n", encoding="utf-8"
+    )
     report = run_matrix(
         str(script),
-        matrix=["alpine:3.20"],
-        packages=["curl"],
+        matrix=[image],
+        packages=["bash", "curl", "ca-certificates", "tar"],
+        shell_mode="auto",
         network="bridge",
-        timeout=60,
+        timeout=120,
     )
-    assert report.all_passed is True
+    assert report.all_passed is True, report.to_dict()
     assert report.results[0].status == DistroStatus.PASS
 
 
