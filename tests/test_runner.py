@@ -220,7 +220,7 @@ def test_run_on_distro_package_setup_wraps_command(tmp_path):
     assert result.status == DistroStatus.PASS
     command = mock_client.containers.create.call_args.kwargs["command"]
     assert command[:2] == ["/bin/sh", "-c"]
-    assert "apt-get -o APT::Sandbox::User=root install" in command[2]
+    assert "Dir::Cache::archives=/tmp/opsscript-apt-archives/" in command[2]
     assert "apk add --no-cache curl ca-certificates" in command[2]
     assert "exec /bin/sh -c" in command[2]
 
