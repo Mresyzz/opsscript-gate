@@ -19,7 +19,7 @@ jobs:
           persist-credentials: false
 
       - name: Run OpsScript Gate
-        uses: Mresyzz/opsscript-gate@v0.8.0
+        uses: Mresyzz/opsscript-gate@v0.8.1
         with:
           script-path: 'scripts/deploy.sh'
           shell: auto
