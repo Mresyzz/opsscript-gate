@@ -1,8 +1,8 @@
-# OpsScript Gate — shell script compatibility testing
+# OpsScript Gate — GitHub Action for cross-distro shell installer testing
 
 [Live demo](https://mresyzz.github.io/opsscript-gate/) · [简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
 
-> ShellCheck analyzes shell syntax. OpsScript Gate executes scripts in Linux containers.
+> A GitHub Action and Python CLI that executes shell installers in Debian, Ubuntu, and Alpine containers. ShellCheck analyzes syntax; OpsScript Gate verifies runtime compatibility.
 
 [![CI](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml)
 [![Demo](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml)
