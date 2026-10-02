@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.1] - 2026-10-02
+
+### Fixed
+- Prevented Debian and Ubuntu image cleanup hooks from turning optional package setup into a false compatibility failure.
+- Kept package installation and target script failures fail-closed while making ephemeral cache cleanup best-effort.
+
 ## [0.8.0] - 2026-10-02
 
 ### Added

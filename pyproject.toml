@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opsscript-gate"
-version = "0.8.0"
+version = "0.8.1"
 description = "Run Linux shell scripts in Debian, Ubuntu and Alpine containers to catch runtime compatibility failures before merge"
 readme = "README.md"
 license = { text = "MIT" }
