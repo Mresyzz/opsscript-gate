@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.8.2] - 2026-10-02
+
+### Fixed
+- Disabled both APT post-invoke hook variants used by current base images during ephemeral package setup.
+
 ## [0.8.1] - 2026-10-02
 
 ### Fixed
