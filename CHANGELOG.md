@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] - 2026-10-02
 
 ### Added
 - Added opt-in `packages` setup for installing validated package names with

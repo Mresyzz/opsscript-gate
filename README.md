@@ -26,7 +26,7 @@ Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?
 
 ---
 
-## Current release: v0.7.0
+## Current release: v0.8.0
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
 saved reports, and changed-script selection for pull requests. The project controls
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.7.0
+      - uses: Mresyzz/opsscript-gate@v0.8.0
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -88,7 +88,7 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.7.0
+      - uses: Mresyzz/opsscript-gate@v0.8.0
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -120,7 +120,7 @@ unrelated scripts:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.7.0
+      - uses: Mresyzz/opsscript-gate@v0.8.0
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
@@ -203,7 +203,7 @@ Use `sarif` when the result should appear in GitHub Code Scanning or another
 SARIF-compatible viewer. Upload it explicitly with the official upload action:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.7.0
+- uses: Mresyzz/opsscript-gate@v0.8.0
   with:
     script-path: scripts/install.sh
     format: sarif
