@@ -798,8 +798,12 @@ jobs:
       let alpineReason = "";
       const hasBashism = val.includes('[[') || (val.includes('${') && val.includes(':'));
       const hasRead = val.includes('read');
+      const hasSetE = val.includes('set -e') || val.includes('set -o errexit');
       const isBashShebang = val.startsWith('#!/bin/bash') || val.startsWith('#!/usr/bin/env bash');
       const isPosixShebang = val.startsWith('#!/bin/sh');
+
+      // 1. Critical Deadlock & Abort Check: read under set -e
+      const isSetEReadAbort = hasRead && hasSetE;
 
       if (val.includes('apt-get') && !val.includes('apk')) {
         isAlpineFail = true;
@@ -815,21 +819,48 @@ jobs:
       const scWarnings = [];
       if (hasRead && !val.includes('-r')) scWarnings.push("SC2162 (info): read without -r will mangle backslashes.");
       if (isPosixShebang && hasBashism) scWarnings.push("SC3010 (warning): In POSIX sh, [[ ]] is undefined.");
+      if (val.includes('api_key') && !val.includes('$api_key')) scWarnings.push("SC2034 (warning): api_key appears unused. Verify use (or export if used externally).");
 
       const scText = scWarnings.length > 0 
         ? "$ shellcheck script.sh\n" + scWarnings.join('\n') 
         : "$ shellcheck script.sh\nNo issues detected. Syntax conforms to grammar.";
 
-      const logs = [
-        '<div class="text-[var(--status-pass-text)] font-mono text-xs">[debian:12-slim] PASS (0.22s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
-        '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:22.04]   PASS (0.24s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
-        '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:24.04]   PASS (0.26s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>'
-      ];
+      let logs = [];
+      let overallStatus = "ALL DISTROS PASSED";
+      let statusClass = "bg-[var(--status-pass-bg)] text-[var(--status-pass-text)] border-[var(--status-pass-border)]";
+      let showDiag = false;
+      let diagCode = "Exit Code 0";
+      let diagMsg = "";
 
-      if (isAlpineFail) {
-        logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[alpine:3.20]    FAIL (0.11s) - Exit 127</span><br><span class="opacity-95 font-mono text-[11px]">  /tmp/target_script.sh: ' + alpineReason + '</span></div>');
+      if (isSetEReadAbort) {
+        // True Unix behavior: read returns 1 on EOF (from </dev/null), set -e aborts script instantly!
+        overallStatus = "STDIN DEADLOCK INTERCEPTED (ALL FAILED)";
+        statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
+        showDiag = true;
+        diagCode = "Exit Code 1 (set -e)";
+        diagMsg = "Script called 'read' under unattended runner. OpsScript Gate bound stdin to </dev/null; read returned EOF (exit 1), causing 'set -e' to terminate execution immediately before reaching subsequent steps.";
+
+        const distros = ["debian:12-slim", "ubuntu:22.04", "ubuntu:24.04", "alpine:3.20"];
+        distros.forEach(d => {
+          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[' + d + '] FAIL (0.12s) - Exit 1</span><br><span class="opacity-95 font-mono text-[11px]">  read: end of file reached via </dev/null (aborted by set -e)</span></div>');
+        });
       } else {
-        logs.push('<div class="text-[var(--status-pass-text)] font-mono text-xs">[alpine:3.20]    PASS (0.18s)</div>');
+        logs = [
+          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[debian:12-slim] PASS (0.22s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
+          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:22.04]   PASS (0.24s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
+          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:24.04]   PASS (0.26s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>'
+        ];
+
+        if (isAlpineFail) {
+          overallStatus = "MATRIX DISCREPANCY DETECTED";
+          statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
+          showDiag = true;
+          diagCode = "Exit Code 127";
+          diagMsg = "Discrepancy detected on Alpine minimal container: " + alpineReason;
+          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[alpine:3.20]    FAIL (0.11s) - Exit 127</span><br><span class="opacity-95 font-mono text-[11px]">  /tmp/target_script.sh: ' + alpineReason + '</span></div>');
+        } else {
+          logs.push('<div class="text-[var(--status-pass-text)] font-mono text-xs">[alpine:3.20]    PASS (0.18s)</div>');
+        }
       }
 
       renderRealApiResponse({
@@ -839,12 +870,12 @@ jobs:
           output: scText
         },
         opsscript: {
-          overall_status: isAlpineFail ? "MATRIX DISCREPANCY DETECTED" : "ALL DISTROS PASSED",
-          status_class: isAlpineFail ? "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]" : "bg-[var(--status-pass-bg)] text-[var(--status-pass-text)] border-[var(--status-pass-border)]",
+          overall_status: overallStatus,
+          status_class: statusClass,
           terminal_html: logs.join('\n'),
-          show_diagnostic: isAlpineFail,
-          diagnostic_code: "Exit Code 127",
-          diagnostic_msg: isAlpineFail ? ("Discrepancy detected on Alpine minimal container: " + alpineReason) : ""
+          show_diagnostic: showDiag,
+          diagnostic_code: diagCode,
+          diagnostic_msg: diagMsg
         }
       });
     }
