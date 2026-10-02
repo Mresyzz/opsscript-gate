@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Cross-distro shell script runtime compatibility checker and GitHub Action for Debian, Ubuntu, and Alpine; catches command not found and other runtime failures.'
+description: 'Cross-distro shell testing and runtime compatibility checker for Debian, Ubuntu, and Alpine; GitHub Action catches command not found and other runtime failures.'
 author: 'Mresyzz'
 branding:
   icon: 'shield'

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "opsscript-gate"
 version = "0.8.3"
-description = "Cross-distro shell script runtime compatibility checker and GitHub Action for Debian, Ubuntu and Alpine"
+description = "Cross-distro shell testing and runtime compatibility checker for Debian, Ubuntu and Alpine"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
