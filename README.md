@@ -1,6 +1,6 @@
 # OpsScript Gate — shell script compatibility testing
 
-[简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
+[Live demo](https://mresyzz.github.io/opsscript-gate/) · [简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
 
 > ShellCheck analyzes shell syntax. OpsScript Gate executes scripts in Linux containers.
 
@@ -17,12 +17,10 @@
 
 It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
 
-If your repository contains an installer, bootstrap script, or shell entrypoint, the fastest path is to
-open the [InstallReady scanner](https://mresyzz.github.io/InstallReady/), enter `owner/repository`, and
-choose **Add workflow on GitHub**. It generates a reviewable workflow without an account, API key, or
-service signup. You can also copy the maintained [zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml).
-
-Try the browser scanner: [InstallReady](https://mresyzz.github.io/InstallReady/?repo=Mresyzz%2Fopsscript-gate) checks this repository without executing code or requiring a login.
+If your repository contains an installer, bootstrap script, or shell entrypoint, start with the
+[interactive demo](https://mresyzz.github.io/opsscript-gate/), then copy the maintained
+[zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml). The demo explains the
+ShellCheck-versus-runtime gap and the workflow is ready to review in your own repository.
 
 ---
 
@@ -60,8 +58,8 @@ requires bridge networking. See [configuration and migration](docs/configuration
 Add this workflow to `.github/workflows/shell-compat.yml`:
 
 The repository includes a maintained [workflow template](.github/workflow-templates/opsscript-gate.yml).
-For a one-click setup in another public repository, use the InstallReady scanner above; it opens GitHub's
-workflow editor with the generated file ready to review.
+Use the [interactive demo](https://mresyzz.github.io/opsscript-gate/) to understand the failure modes,
+then copy the template into your repository and review the generated workflow.
 
 You can copy the maintained example from [`examples/github-actions/workflow.yml`](examples/github-actions/workflow.yml)
 and change the `script-path`, or use the minimal workflow below.
