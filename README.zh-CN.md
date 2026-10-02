@@ -1,4 +1,4 @@
-# OpsScript Gate：Shell 脚本跨发行版运行检查
+# OpsScript Gate：GitHub Action 跨发行版 Shell 安装脚本测试
 
 [English](README.md) · [配置说明](docs/configuration.md) · [常见问题](docs/troubleshooting.md) · [自托管模型安装脚本指南](docs/gpt-oss.md)
 
