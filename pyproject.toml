@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "opsscript-gate"
 version = "0.8.3"
-description = "Run Linux shell scripts in Debian, Ubuntu and Alpine containers to catch runtime compatibility failures before merge"
+description = "Run shell installers in real Debian, Ubuntu and Alpine containers to diagnose command not found and runtime compatibility failures before merge"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -33,6 +33,13 @@ keywords = [
     "shell-portability",
     "installer-testing",
     "busybox",
+    "command-not-found",
+    "shell-script-testing",
+    "runtime-compatibility",
+    "portable-shell",
+    "apt-get",
+    "apk",
+    "bashisms",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -57,6 +64,7 @@ Repository = "https://github.com/Mresyzz/opsscript-gate"
 Issues = "https://github.com/Mresyzz/opsscript-gate/issues"
 Changelog = "https://github.com/Mresyzz/opsscript-gate/blob/main/CHANGELOG.md"
 Documentation = "https://github.com/Mresyzz/opsscript-gate/tree/main/docs"
+Troubleshooting = "https://github.com/Mresyzz/opsscript-gate/blob/main/docs/command-not-found.md"
 
 [project.optional-dependencies]
 test = [

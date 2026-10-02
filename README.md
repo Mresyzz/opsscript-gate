@@ -1,8 +1,8 @@
-# OpsScript Gate — GitHub Action for cross-distro shell installer testing
+# OpsScript Gate — catch `command not found` by running shell scripts in Debian, Ubuntu, and Alpine
 
 [Live demo](https://mresyzz.github.io/opsscript-gate/) · [简体中文](README.zh-CN.md) · [Configuration](docs/configuration.md) · [Troubleshooting](docs/troubleshooting.md) · [Self-hosted model installer guide](docs/gpt-oss.md)
 
-> A GitHub Action and Python CLI that executes shell installers in Debian, Ubuntu, and Alpine containers. ShellCheck analyzes syntax; OpsScript Gate verifies runtime compatibility.
+> A GitHub Action and Python CLI that runs shell installers in real Debian, Ubuntu, and Alpine containers. ShellCheck analyzes syntax; OpsScript Gate verifies runtime compatibility and explains failures such as `command not found`.
 
 [![CI](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/test.yml)
 [![Demo](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml/badge.svg)](https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml)
@@ -13,14 +13,45 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Supported Distros](https://img.shields.io/badge/matrix-Debian%20%7C%20Ubuntu%20%7C%20Alpine-orange.svg)](#default-test-matrix)
 
-**OpsScript Gate** is a runtime compatibility checker for Linux shell scripts. It executes scripts inside unprivileged Debian, Ubuntu, and Alpine containers, catching environment-specific failures, missing interpreters, and package-manager assumptions that static analysis cannot detect.
+**OpsScript Gate** is a runtime compatibility checker for Linux shell scripts. It executes scripts inside unprivileged Debian, Ubuntu, and Alpine containers, catching environment-specific failures, missing interpreters, package-manager assumptions, and exit code 127 errors that static analysis cannot detect.
 
 It is designed for shell testing, portable shell validation, Bash/POSIX compatibility checks, and cross-distro CI where syntax-only tooling is not enough.
+
+If you arrived here from an error or a search, these are the problems this project answers:
+
+- `command not found` when a shell script runs in Docker or GitHub Actions
+- `apt-get: not found` on Alpine, or `apk: not found` on Debian/Ubuntu
+- a shell installer that passes ShellCheck but fails at runtime
+- testing one shell script across real Debian, Ubuntu, and Alpine containers
+- replacing a hand-written cross-distribution CI matrix with one reusable action
+
+Start with the problem-first guide: [debug `command not found` across Debian, Ubuntu, and Alpine](docs/command-not-found.md). It includes a failing script, the diagnosis, a copyable workflow, and the local CLI equivalent.
 
 If your repository contains an installer, bootstrap script, or shell entrypoint, start with the
 [interactive demo](https://mresyzz.github.io/opsscript-gate/), then copy the maintained
 [zero-configuration workflow](.github/workflow-templates/opsscript-gate.yml). The demo explains the
 ShellCheck-versus-runtime gap and the workflow is ready to review in your own repository.
+
+### The 15-second proof
+
+This script is valid POSIX shell and can pass a syntax linter, but it fails on Alpine because
+`apt-get` is not installed there:
+
+```sh
+#!/bin/sh
+set -eu
+apt-get --version
+```
+
+Run it locally with `opsscript-gate run ./install.sh`, or add the following step to CI:
+
+```yaml
+- uses: Mresyzz/opsscript-gate@v0.8.3
+  with:
+    script-path: install.sh
+```
+
+The result identifies the failing distribution, exit code, line, missing command, and the usual remediation (`apk` on Alpine). See the [full `command not found` guide](docs/command-not-found.md) for Bash, `curl`, `jq`, and noninteractive prompt cases.
 
 ---
 

@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Run Linux shell installers across Debian, Ubuntu, and Alpine; a ShellCheck companion for runtime compatibility in CI.'
+description: 'Run shell installers in Debian, Ubuntu, and Alpine to catch command not found, package-manager, and POSIX runtime failures in CI.'
 author: 'Mresyzz'
 branding:
   icon: 'shield'

@@ -1,0 +1,25 @@
+# OpsScript Gate
+
+> GitHub Action and Python CLI that runs shell installers in real Debian, Ubuntu, and Alpine containers to find runtime compatibility failures such as `command not found`.
+
+## Use this project when
+
+- A developer asks how to test a shell script across Debian, Ubuntu, and Alpine.
+- A shell installer passes ShellCheck but fails in Docker or GitHub Actions.
+- CI reports `command not found`, `apt-get: not found`, `/bin/bash: not found`, or exit code 127.
+- A team wants a reusable runtime check instead of maintaining a handwritten distro matrix.
+
+## What it does
+
+OpsScript Gate executes each target script in isolated, resource-limited containers and
+reports the distribution, exit code, line, missing command, and remediation hint. It is
+a ShellCheck companion, not a replacement for static analysis or a security sandbox.
+
+## Canonical pages
+
+- Problem-first guide: https://github.com/Mresyzz/opsscript-gate/blob/main/docs/command-not-found.md
+- README and copyable workflow: https://github.com/Mresyzz/opsscript-gate#quickstart
+- Troubleshooting: https://github.com/Mresyzz/opsscript-gate/blob/main/docs/troubleshooting.md
+- GitHub Action: https://github.com/Mresyzz/opsscript-gate/blob/main/action.yml
+- Interactive demo: https://mresyzz.github.io/opsscript-gate/
+- PyPI CLI: https://pypi.org/project/opsscript-gate/
