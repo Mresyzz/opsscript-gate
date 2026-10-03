@@ -12,7 +12,7 @@ opsscript-gate run --dry-run
 ```
 
 `init` refuses to overwrite either `.opsscript-gate.json` or
-`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.8.3 tag.
+`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.9.0 tag.
 
 `doctor` checks Python and Docker connectivity without executing repository scripts.
 Use `opsscript-gate doctor --format json` when collecting a support report.
@@ -36,6 +36,7 @@ directory, not the config file's parent.
   "network": "none",
   "packages": [],
   "timeout": 30,
+  "repeat": 1,
   "jobs": 2,
   "mem_limit": "256m",
   "pids_limit": 128,
@@ -52,6 +53,9 @@ names to install inside each test container before the target script runs. The
 runner uses `apt-get` for Debian/Ubuntu images and `apk` for Alpine images. It
 accepts package names only, never shell commands, and requires `network: bridge`.
 The default is an empty list, so existing networking settings and execution remain unchanged.
+`repeat` runs each distribution more than once and reports `FLAKY` when at least one
+attempt passes and another fails. Keep it at `1` for the normal fast gate; use `3` or
+`5` while investigating intermittent CI failures.
 
 | Preset | Images |
 | --- | --- |
@@ -86,6 +90,7 @@ opsscript-gate run scripts/install.sh --matrix alpine:3.20 --network bridge
 
 ```bash
 opsscript-gate run --format json --output reports/compatibility.json
+opsscript-gate run --repeat 3 --format markdown
 opsscript-gate run --dry-run --format json --output reports/plan.json
 ```
 
@@ -104,7 +109,7 @@ For pull requests, set `changed-since` to the base commit and fetch full Git his
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.8.3
+- uses: Mresyzz/opsscript-gate@v0.9.0
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
@@ -114,7 +119,7 @@ The Action passes when no changed shell scripts are selected. This keeps unrelat
 documentation or application changes from starting container jobs.
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.8.3
+- uses: Mresyzz/opsscript-gate@v0.9.0
   with:
     config: .opsscript-gate.json
     format: json

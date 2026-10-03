@@ -210,6 +210,10 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
 
         if r.status == DistroStatus.PASS:
             detail = "OK"
+            if r.attempts > 1:
+                detail = f"OK ({r.passed_attempts}/{r.attempts} attempts)"
+        elif r.status == DistroStatus.FLAKY:
+            detail = r.error_message or "Runtime was non-deterministic"
         elif r.diagnostic:
             line_suffix = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             detail = f"{r.diagnostic.message}{line_suffix}"
@@ -332,6 +336,8 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     for r in report.results:
         if r.status == DistroStatus.PASS:
             status_icon = "✅ PASS"
+        elif r.status == DistroStatus.FLAKY:
+            status_icon = "⚠️ FLAKY"
         elif r.status == DistroStatus.FAIL:
             status_icon = "❌ FAIL"
         elif r.status == DistroStatus.TIMED_OUT:
@@ -345,6 +351,8 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
 
         if r.status == DistroStatus.PASS:
             raw_diag = "OK"
+        elif r.status == DistroStatus.FLAKY:
+            raw_diag = r.error_message or "Runtime was non-deterministic"
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
@@ -376,10 +384,12 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         "| :--- | :---: | :---: | :--- |",
     ]
     for r in report.results:
-        icon = "✅" if r.status == DistroStatus.PASS else "❌"
+        icon = "✅" if r.status == DistroStatus.PASS else ("⚠️" if r.status == DistroStatus.FLAKY else "❌")
         distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(r.distro)}`")
         if r.status == DistroStatus.PASS:
             raw_detail = "OK"
+        elif r.status == DistroStatus.FLAKY:
+            raw_detail = r.error_message or "Runtime was non-deterministic"
         elif r.diagnostic:
             safe_cmd = escape_inline_code(r.diagnostic.command or "")
             raw_detail = f"Missing `{safe_cmd}`"
@@ -469,6 +479,7 @@ _SARIF_RULES = {
     DistroStatus.FAIL: ("OSG001", "Runtime compatibility failure"),
     DistroStatus.TIMED_OUT: ("OSG002", "Runtime compatibility check timed out"),
     DistroStatus.ERROR: ("OSG003", "Runtime compatibility check error"),
+    DistroStatus.FLAKY: ("OSG004", "Runtime compatibility check was flaky"),
 }
 
 

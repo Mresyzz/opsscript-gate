@@ -22,6 +22,10 @@ inputs:
     description: 'Hard timeout in seconds per container (default: 60)'
     required: false
     default: ''
+  repeat:
+    description: 'Repeat each distribution run to detect flaky runtime behavior (default: 1)'
+    required: false
+    default: ''
   format:
     description: 'Output report format: table, markdown, json, or sarif'
     required: false
@@ -96,6 +100,7 @@ runs:
         INPUT_MATRIX: ${{ inputs.matrix }}
         INPUT_JOBS: ${{ inputs.jobs }}
         INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_REPEAT: ${{ inputs.repeat }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_SHELL: ${{ inputs.shell }}
         INPUT_MEM_LIMIT: ${{ inputs.mem-limit }}
@@ -116,6 +121,7 @@ runs:
         fi
         # Only explicit inputs override project configuration.
         [ -z "$INPUT_TIMEOUT" ] || ARGS+=(--timeout "$INPUT_TIMEOUT")
+        [ -z "$INPUT_REPEAT" ] || ARGS+=(--repeat "$INPUT_REPEAT")
         [ -z "$INPUT_FORMAT" ] || ARGS+=(--format "$INPUT_FORMAT")
         [ -z "$INPUT_SHELL" ] || ARGS+=(--shell "$INPUT_SHELL")
         [ -z "$INPUT_MEM_LIMIT" ] || ARGS+=(--mem-limit "$INPUT_MEM_LIMIT")

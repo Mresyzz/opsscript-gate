@@ -48,7 +48,7 @@ apt-get --version
 Run it locally with `opsscript-gate run ./install.sh`, or add the following step to CI:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.8.3
+- uses: Mresyzz/opsscript-gate@v0.9.0
   with:
     script-path: install.sh
 ```
@@ -57,10 +57,11 @@ The result identifies the failing distribution, exit code, line, missing command
 
 ---
 
-## Current release: v0.8.3
+## Current release: v0.9.0
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
-saved reports, and changed-script selection for pull requests. The project controls
+saved reports, changed-script selection for pull requests, and repeat runs for detecting
+flaky runtime behavior. The project controls
 were introduced in v0.5.0; projects on v0.4.1 and earlier do not include them.
 
 ```bash
@@ -68,6 +69,8 @@ opsscript-gate init
 opsscript-gate doctor
 opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
+# Repeat each distro three times when diagnosing intermittent failures
+opsscript-gate run ./install.sh --repeat 3
 ```
 
 `init` creates `.opsscript-gate.json` and a GitHub Actions workflow without replacing
@@ -108,7 +111,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.8.3
+      - uses: Mresyzz/opsscript-gate@v0.9.0
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -119,11 +122,13 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.8.3
+      - uses: Mresyzz/opsscript-gate@v0.9.0
         with:
           script-path: scripts/install.sh
           shell: auto
           jobs: 4
+          # Optional: expose intermittent runtime failures
+          repeat: 3
 ```
 
 ### In Local Terminal (CLI)
@@ -151,7 +156,7 @@ unrelated scripts:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.8.3
+      - uses: Mresyzz/opsscript-gate@v0.9.0
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
@@ -160,6 +165,14 @@ unrelated scripts:
 If the change does not include a shell script, the check passes without starting a
 container. The same selection can be previewed locally with
 `opsscript-gate run --changed-since origin/main --dry-run`.
+
+### Detect intermittent runtime failures
+
+Use `--repeat N` when a script sometimes passes and sometimes fails in CI. OpsScript
+Gate runs each distribution N times and reports `FLAKY` when the same distribution has
+both passing and failing attempts. The JSON, Markdown, SARIF, annotations, and step
+summary include the attempt counts so a retry cannot silently turn an unstable script
+green.
 
 ### Example: package-manager mismatch
 
@@ -234,7 +247,7 @@ Use `sarif` when the result should appear in GitHub Code Scanning or another
 SARIF-compatible viewer. Upload it explicitly with the official upload action:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.8.3
+- uses: Mresyzz/opsscript-gate@v0.9.0
   with:
     script-path: scripts/install.sh
     format: sarif

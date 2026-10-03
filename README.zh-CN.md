@@ -17,9 +17,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 
 也可以直接打开 [OpsScript Gate 在线演示](https://mresyzz.github.io/opsscript-gate/)，先查看 ShellCheck 与运行时验证的差异，再复制 workflow 到自己的仓库。
 
-## 当前版本 v0.8.3
+## 当前版本 v0.9.0
 
-v0.8.3 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
+v0.9.0 已作为正式版本发布；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -35,7 +35,7 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.8.3`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.9.0`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 `opsscript-gate doctor` 可以在真实运行前检查 Python 和 Docker。
@@ -58,6 +58,8 @@ opsscript-gate run --format json --output reports/compatibility.json
 - 排除规则、发行版预设、扫描数量限制。
 - 超过扫描上限明确报错，避免只测前 20 个却误以为全部通过。
 - 报告保存为 JSON、Markdown 或文本，失败时同样保留结果。
+- 使用 `--repeat 3` 或配置 `"repeat": 3` 重复运行每个发行版；同一发行版出现
+  一次通过、一次失败时会标记为 `FLAKY`，避免偶发绿灯掩盖 CI 不稳定。
 - 自动发现跳过符号链接，并严格校验配置与执行参数。
 
 返回码 `0` 表示全部通过，`1` 表示检查失败或发生错误。`--dry-run` 成功只表示
@@ -72,7 +74,7 @@ Docker daemon 和可选的项目配置。
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.8.3
+- uses: Mresyzz/opsscript-gate@v0.9.0
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal

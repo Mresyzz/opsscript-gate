@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -11,6 +11,7 @@ class DistroStatus(str, Enum):
     FAIL = "FAIL"
     TIMED_OUT = "TIMED_OUT"
     ERROR = "ERROR"
+    FLAKY = "FLAKY"
 
 
 class ShellMode(str, Enum):
@@ -56,6 +57,20 @@ class SingleResult:
     output_snippet: str = ""
     error_message: str | None = None
     diagnostic: FailureDiagnostic | None = None
+    attempts: int = 1
+    passed_attempts: int = 1
+    failed_attempts: int = 0
+
+    def __post_init__(self) -> None:
+        if self.attempts < 1:
+            raise ValueError("attempts must be a positive integer")
+        if self.status != DistroStatus.PASS and self.attempts == 1:
+            # Preserve the old constructor shape while keeping failure counts honest.
+            if self.passed_attempts == 1 and self.failed_attempts == 0:
+                self.passed_attempts = 0
+                self.failed_attempts = 1
+        if self.passed_attempts + self.failed_attempts != self.attempts:
+            raise ValueError("passed_attempts + failed_attempts must equal attempts")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +81,10 @@ class SingleResult:
             "output_snippet": self.output_snippet,
             "error_message": self.error_message,
             "diagnostic": self.diagnostic.to_dict() if self.diagnostic is not None else None,
+            "attempts": self.attempts,
+            "passed_attempts": self.passed_attempts,
+            "failed_attempts": self.failed_attempts,
+            "flaky": self.status == DistroStatus.FLAKY,
         }
 
 

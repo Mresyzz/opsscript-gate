@@ -747,24 +747,36 @@ def run_on_distro(
 
         container.start()
 
-        # Hard timeout monitoring with container.kill()
+        # Prefer Docker's blocking wait to avoid a tight synchronous reload loop.
+        # Test doubles and older clients that do not return a status dict fall back
+        # to the bounded polling path below.
         timed_out = False
-        while True:
-            elapsed = time.perf_counter() - start_time
-            if elapsed >= timeout:
+        wait_result = None
+        wait_fn = getattr(container, "wait", None)
+        if callable(wait_fn):
+            try:
+                wait_result = wait_fn(timeout=max(0.01, float(timeout)))
+            except Exception:
                 timed_out = True
-                try:
-                    container.kill()
-                except Exception:
-                    pass
-                break
+        if not isinstance(wait_result, dict) and not timed_out:
+            while True:
+                elapsed = time.perf_counter() - start_time
+                if elapsed >= timeout:
+                    timed_out = True
+                    break
 
-            container.reload()
-            status_str = container.status.lower()
-            if status_str in ("exited", "dead", "stopped"):
-                break
+                container.reload()
+                status_str = container.status.lower()
+                if status_str in ("exited", "dead", "stopped"):
+                    break
 
-            time.sleep(poll_interval)
+                time.sleep(min(poll_interval, max(0.0, timeout - elapsed)))
+
+        if timed_out:
+            try:
+                container.kill()
+            except Exception:
+                pass
 
         duration = time.perf_counter() - start_time
 
@@ -847,12 +859,16 @@ def run_matrix(
     pids_limit: int = 128,
     network: str = "bridge",
     packages: Sequence[str] | None = None,
+    repeat: int = 1,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
     optionally running containers concurrently with ThreadPoolExecutor.
     Results strictly preserve the original matrix order.
     """
+    if repeat < 1:
+        raise ValueError("repeat must be a positive integer")
+
     try:
         mode = ShellMode(shell_mode)
     except ValueError:
@@ -900,20 +916,53 @@ def run_matrix(
     results: list[SingleResult] = [None] * len(distro_list)  # type: ignore
 
     def _worker(index: int, distro_name: str) -> tuple[int, SingleResult]:
-        res = run_on_distro(
-            client=docker_client,
-            script_path=script_path,
+        attempts: list[SingleResult] = []
+        for _ in range(repeat):
+            attempts.append(run_on_distro(
+                client=docker_client,
+                script_path=script_path,
+                distro=distro_name,
+                timeout=timeout,
+                shell_mode=shell_mode,
+                parsed_shebang=parsed_shebang,
+                mem_limit=mem_limit,
+                pids_limit=pids_limit,
+                network=network,
+                packages=package_list,
+                prepared_script_path=prepared_script,
+            ))
+
+        if repeat == 1:
+            return index, attempts[0]
+
+        passed = sum(result.status == DistroStatus.PASS for result in attempts)
+        failed = repeat - passed
+        representative = next((r for r in attempts if r.status != DistroStatus.PASS), attempts[-1])
+        if passed and failed:
+            status = DistroStatus.FLAKY
+            message = (
+                f"Runtime was non-deterministic: {passed}/{repeat} attempts passed "
+                f"and {failed}/{repeat} failed"
+            )
+            error_message = message if representative.error_message is None else (
+                f"{message}; {representative.error_message}"
+            )
+        else:
+            status = representative.status
+            error_message = representative.error_message
+
+        return index, SingleResult(
             distro=distro_name,
-            timeout=timeout,
-            shell_mode=shell_mode,
-            parsed_shebang=parsed_shebang,
-            mem_limit=mem_limit,
-            pids_limit=pids_limit,
-            network=network,
-            packages=package_list,
-            prepared_script_path=prepared_script,
+            status=status,
+            exit_code=representative.exit_code,
+            duration=sum(r.duration for r in attempts),
+            output_snippet=representative.output_snippet,
+            error_message=error_message,
+            diagnostic=representative.diagnostic,
+            attempts=repeat,
+            passed_attempts=passed,
+            failed_attempts=failed,
         )
-        return index, res
 
     try:
         if effective_jobs == 1 or len(distro_list) <= 1:

@@ -14,7 +14,10 @@ DEFAULTS = {
     "matrix": None, "preset": None, "jobs": None, "timeout": 60,
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
     "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
+    "repeat": 1,
 }
+
+MAX_CONFIG_SIZE_BYTES = 256 * 1024
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
 
@@ -39,6 +42,10 @@ def load_config(filename: str | None) -> dict:
     if filename is None and not path.exists():
         return {}
     try:
+        if path.stat().st_size > MAX_CONFIG_SIZE_BYTES:
+            raise ValueError(
+                f"configuration exceeds {MAX_CONFIG_SIZE_BYTES // 1024} KiB limit"
+            )
         config = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"Cannot load {path}: {exc}") from exc
@@ -48,7 +55,7 @@ def load_config(filename: str | None) -> dict:
     if unknown:
         raise ValueError(f"Unknown configuration keys: {', '.join(sorted(unknown))}")
     for key, value in config.items():
-        if key in {"jobs", "timeout", "pids_limit", "max_scripts"}:
+        if key in {"jobs", "timeout", "pids_limit", "max_scripts", "repeat"}:
             if type(value) is not int or value < 1:
                 raise ValueError(f"{key} must be a positive integer")
         elif key == "exclude":
@@ -83,7 +90,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.8.3
+      - uses: Mresyzz/opsscript-gate@v0.9.0
         with:
           config: .opsscript-gate.json
 """,

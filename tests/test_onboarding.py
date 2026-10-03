@@ -98,6 +98,19 @@ def test_packages_are_forwarded_and_visible_in_dry_run(project, capsys):
     assert plan["packages"] == ["curl", "ca-certificates", "tar"]
 
 
+def test_repeat_is_forwarded_and_visible_in_dry_run(project, capsys):
+    assert main(["run", "install.sh", "--dry-run", "--format", "json", "--repeat", "3"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["repeat"] == 3
+
+
+def test_oversized_config_is_rejected(project):
+    Path(CONFIG_NAME).write_text("{" + "\"x\":1," * 50000 + "\"timeout\":60}")
+    with patch("opsscript_gate.cli.run_matrix") as run:
+        assert main(["run", "--dry-run"]) == 1
+        run.assert_not_called()
+
+
 def test_packages_reject_offline_network(project):
     with patch("opsscript_gate.cli.run_matrix") as run:
         assert main(["run", "install.sh", "--packages", "curl", "--network", "none"]) == 1
@@ -169,7 +182,7 @@ def test_changed_discovery_preview_includes_revision(project, monkeypatch, capsy
 
 
 @pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"],
-    ["--pids-limit", "0"], ["--network", "host"], ["--matrix", ","],
+    ["--pids-limit", "0"], ["--repeat", "0"], ["--network", "host"], ["--matrix", ","],
     ["--matrix", "alpine", "--preset", "minimal"], ["--config", "missing.json"]])
 def test_invalid_cli_before_execution(project, flags):
     with patch("opsscript_gate.cli.run_matrix") as run:
