@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test shell scripts in Debian, Ubuntu and Alpine: command not found | OpsScript Gate</title>
+  <meta name="description" content="Test a shell installer in real Debian, Ubuntu and Alpine containers. Diagnose command not found, exit code 127 and missing Bash with OpsScript Gate, a GitHub Action and CLI.">
+  <link rel="canonical" href="https://mresyzz.github.io/opsscript-gate/command-not-found.html">
+  <meta property="og:title" content="ShellCheck passed. Does your installer run on Alpine?">
+  <meta property="og:description" content="A reproducible shell runtime compatibility check for Debian, Ubuntu and Alpine, with a copyable GitHub Actions workflow.">
+  <meta property="og:url" content="https://mresyzz.github.io/opsscript-gate/command-not-found.html">
+  <style>
+    :root { color-scheme: light; --ink:#262420; --muted:#59544b; --accent:#a94a31; --line:#ddd6c9; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#faf8f5; color:var(--ink); font:17px/1.7 system-ui,sans-serif; }
+    main { width:min(900px,100%); margin:auto; padding:32px 24px 64px; }
+    nav { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding-bottom:28px; }
+    a { color:var(--accent); text-underline-offset:4px; }
+    a:focus-visible { outline:3px solid var(--accent); outline-offset:5px; }
+    h1 { font:normal clamp(32px,6vw,48px)/1.18 Georgia,serif; letter-spacing:-.025em; margin:12px 0 20px; }
+    h2 { font:normal 28px/1.3 Georgia,serif; margin:38px 0 12px; }
+    h3 { font-size:18px; margin:0 0 10px; }
+    p { margin:12px 0; } .eyebrow,.muted { color:var(--muted); }
+    .eyebrow { font-size:13px; letter-spacing:.05em; text-transform:uppercase; }
+    pre { background:#f0ebe2; padding:20px; border:1px solid var(--line); border-radius:9px; overflow:auto; font:14px/1.65 Consolas,monospace; }
+    code { font-family:Consolas,monospace; } p code,td code { font-size:.9em; }
+    .table-wrap { overflow:auto; } table { border-collapse:collapse; width:100%; }
+    th,td { text-align:left; padding:12px; border-bottom:1px solid var(--line); }
+    .pass { color:#1e593d; } .fail { color:#8a342b; }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .card { border:1px solid var(--line); background:white; border-radius:9px; padding:20px; font-size:15px; }
+    .cta { display:inline-block; background:var(--accent); color:white; padding:10px 18px; border-radius:6px; text-decoration:none; margin:16px 0; }
+    footer { margin-top:40px; padding-top:20px; border-top:1px solid var(--line); font-size:14px; }
+    @media (max-width:650px) { .cards { grid-template-columns:1fr; } main { padding:24px 18px 48px; } }
+  </style>
+</head>
+<body>
+<main>
+  <nav aria-label="Primary"><a href="./">OpsScript Gate</a><a href="https://github.com/Mresyzz/opsscript-gate">GitHub repository</a></nav>
+  <p class="eyebrow">Cross-distro shell script runtime compatibility checker</p>
+  <h1>ShellCheck passed.<br>Your installer still failed on Alpine.</h1>
+  <p><strong>OpsScript Gate tests shell scripts in real Debian, Ubuntu, and Alpine containers.</strong>
+    It is a GitHub Action and Python CLI that reports each distribution's PASS/FAIL result and
+    diagnoses runtime failures such as <code>command not found</code>.</p>
+  <p>Use it for standalone installers, bootstrap scripts, and shell entrypoints. You supply the script;
+    the tool runs the distribution matrix and collects the diagnostic report.</p>
+  <a class="cta" href="#workflow">Add the runtime check to CI</a>
+
+  <h2>A valid shell script can assume the wrong command</h2>
+  <p>Save this as <code>install.sh</code>. The syntax is valid POSIX shell, but Alpine uses
+    <code>apk</code> and does not supply <code>apt-get</code> in its standard image.</p>
+  <pre><code>#!/bin/sh
+set -eu
+apt-get --version</code></pre>
+  <p class="muted">Expected outcome for this example; this page does not execute containers in your browser.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Image</th><th scope="col">Result</th><th scope="col">Diagnostic</th></tr></thead>
+    <tbody>
+      <tr><td><code>debian:12-slim</code></td><td class="pass">PASS</td><td>Exit 0</td></tr>
+      <tr><td><code>ubuntu:22.04</code></td><td class="pass">PASS</td><td>Exit 0</td></tr>
+      <tr><td><code>ubuntu:24.04</code></td><td class="pass">PASS</td><td>Exit 0</td></tr>
+      <tr><td><code>alpine:3.20</code></td><td class="fail">FAIL</td><td>Exit 127: <code>apt-get: not found</code>, line 3</td></tr>
+    </tbody>
+  </table></div>
+  <p>A shell linter checks source code. Executing the script tests which commands actually exist in the target image.
+    Run both checks to cover source mistakes and runtime assumptions.</p>
+
+  <h2 id="workflow">A complete GitHub Actions workflow</h2>
+  <p>Copy this into <code>.github/workflows/shell-runtime.yml</code> and set <code>script-path</code>
+    to your installer. The Ubuntu runner starts the Debian, Ubuntu, and Alpine containers.</p>
+  <pre><code>name: Shell runtime compatibility
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Mresyzz/opsscript-gate@v0.8.3
+        with:
+          script-path: install.sh
+          shell: auto
+          format: markdown
+          output: reports/compatibility.md</code></pre>
+  <p>The report includes the image, exit code, script line where available, missing command, and remediation hint.
+    GitHub Actions also receives workflow annotations and a Step Summary.
+    <a href="https://github.com/Mresyzz/opsscript-gate/actions/workflows/demo.yml">Inspect the project's real CI demo runs</a>.</p>
+
+  <h2>What the failure tells you</h2>
+  <div class="cards">
+    <article class="card"><h3><code>apt-get: not found</code></h3><p>Check for APT or <code>apk</code> before calling it.
+      Package names differ by distribution; do not replace them blindly.</p></article>
+    <article class="card"><h3><code>/bin/bash: not found</code></h3><p>Minimal Alpine omits Bash by default.
+      Use POSIX shell or declare an image or package prerequisite that supplies Bash.</p></article>
+    <article class="card"><h3><code>curl</code> or <code>jq</code> missing</h3><p>Minimal images omit many convenience tools.
+      Declare required tools through <code>packages</code> or explain the prerequisite in your installer.</p></article>
+  </div>
+
+  <h2>Run the same check locally</h2>
+  <p>Requires Python 3.10+ and a reachable Docker engine running Linux containers.</p>
+  <pre><code>pip install opsscript-gate
+opsscript-gate doctor
+opsscript-gate run ./install.sh</code></pre>
+  <p>The CLI supports table, Markdown, JSON, and SARIF reports.
+    <code>--dry-run</code> previews the plan without Docker; it does not verify runtime compatibility.</p>
+
+  <h2>Where this check fits</h2>
+  <p>ShellCheck analyzes shell source; OpsScript Gate executes it across distributions. A handwritten Docker matrix
+    can also run scripts, but you maintain its image list, timeouts, log parsing, and reports.</p>
+  <p>OpsScript Gate mounts each script independently. Sibling files and repository dependencies are not mounted.
+    These are distribution user-space tests in containers, not separate Linux kernels or full-machine tests.
+    Passing checks do not prove security or replace project integration tests.</p>
+  <footer>Read the <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/configuration.md">configuration guide</a>,
+    <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/troubleshooting.md">troubleshooting</a>,
+    or <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/SECURITY.md">security boundaries</a>.
+    <a href="./">Open the interactive demo</a>.</footer>
+</main>
+</body>
+</html>
