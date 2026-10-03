@@ -57,6 +57,16 @@ def test_doctor_json_reports_docker_failure(project, capsys):
     assert next(check for check in report["checks"] if check["name"] == "docker")["ok"] is False
 
 
+def test_doctor_rejects_invalid_project_config(project, capsys):
+    Path(CONFIG_NAME).write_text('{"timeout":')
+    with patch("opsscript_gate.cli.get_docker_client"):
+        assert main(["doctor", "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    check = next(item for item in report["checks"] if item["name"] == "project")
+    assert check["ok"] is False
+    assert "Invalid" in check["detail"]
+
+
 def test_init_existing_workflow_leaves_config_absent(project):
     workflow = project / ".github/workflows/opsscript-gate.yml"
     workflow.parent.mkdir(parents=True)
@@ -127,6 +137,7 @@ def test_discovery_limit_and_exclusions(project):
     with pytest.raises(ValueError, match="no scripts were executed"):
         discover_scripts(max_scripts=1)
     assert discover_scripts(max_scripts=1, exclude=["tests/*"]) == ["./install.sh"]
+    assert discover_scripts(max_scripts=1, exclude=["./install.sh", "tests/*"]) == []
     with patch("opsscript_gate.cli.run_matrix") as run:
         assert main(["run", "--max-scripts", "1"]) == 1
         run.assert_not_called()
@@ -156,6 +167,13 @@ def test_changed_discovery_uses_git_paths_and_filters_candidates(tmp_path):
     assert result == ["./install.sh"]
     run.assert_called_once()
     assert "origin/main...HEAD" in run.call_args.args[0]
+
+
+def test_changed_discovery_matches_dot_slash_exclusions(tmp_path):
+    (tmp_path / "install.sh").write_text("#!/bin/sh\necho ok\n")
+    completed = type("Completed", (), {"stdout": b"install.sh\0", "stderr": b""})()
+    with patch("opsscript_gate.discovery.subprocess.run", return_value=completed):
+        assert discover_changed_scripts(str(tmp_path), exclude=["./install.sh"]) == []
 
 
 @pytest.mark.parametrize("revision", ["", "--output=bad", "origin/main bad"])

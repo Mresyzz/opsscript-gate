@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.1] - 2026-10-03
+
+### Fixed
+- Normalized discovery exclusions so top-level paths match with or without `./`.
+- Made SARIF output conform to the 2.1.0 result schema.
+- Failed closed when Docker omitted an exit code and separated package setup errors from script failures.
+- Validated project configuration in `doctor` and handled UTF-8 BOM scripts.
+- Distinguished Docker wait API errors from genuine execution timeouts.
+
 ## [0.9.0] - 2026-10-03
 
 ### Added

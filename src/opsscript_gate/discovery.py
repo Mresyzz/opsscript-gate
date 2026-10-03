@@ -40,6 +40,16 @@ MAX_DISCOVERED_SCRIPTS = 20
 MAX_SCRIPT_SIZE_BYTES = 1024 * 1024  # 1 MB
 
 
+def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
+    """Match exclusions consistently whether callers use ``foo.sh`` or ``./foo.sh``."""
+    normalized_path = rel_path[2:] if rel_path.startswith("./") else rel_path
+    for pattern in patterns or []:
+        normalized_pattern = pattern[2:] if pattern.startswith("./") else pattern
+        if fnmatch.fnmatchcase(normalized_path, normalized_pattern):
+            return True
+    return False
+
+
 def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES) -> bool:
     """
     Check if a file is a candidate shell script:
@@ -101,7 +111,7 @@ def discover_scripts(
             if is_shell_script(file_path, max_size_bytes=max_size_bytes):
                 try:
                     rel_path = file_path.relative_to(root_path).as_posix()
-                    if any(fnmatch.fnmatchcase(rel_path, pattern) for pattern in (exclude or [])):
+                    if _matches_exclude(rel_path, exclude):
                         continue
                     # Prepend ./ if top-level for standard script path conventions
                     if not rel_path.startswith("./") and "/" not in rel_path:
@@ -168,7 +178,7 @@ def discover_changed_scripts(
             rel_path = resolved.relative_to(root_path).as_posix()
         except (OSError, ValueError):
             continue
-        if any(fnmatch.fnmatchcase(rel_path, pattern) for pattern in (exclude or [])):
+        if _matches_exclude(rel_path, exclude):
             continue
         if not is_shell_script(candidate, max_size_bytes=max_size_bytes):
             continue

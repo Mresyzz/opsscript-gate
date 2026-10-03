@@ -226,11 +226,27 @@ def main(argv: list[str] | None = None) -> int:
             checks.append({"name": "docker", "ok": False, "detail": str(err)})
 
         config_path = Path(".opsscript-gate.json")
-        checks.append({
-            "name": "project",
-            "ok": True,
-            "detail": f"Found {config_path}" if config_path.is_file() else "No project config (optional)",
-        })
+        if not config_path.is_file():
+            checks.append({
+                "name": "project",
+                "ok": True,
+                "detail": "No project config (optional)",
+            })
+        else:
+            try:
+                load_config(str(config_path))
+            except (OSError, ValueError) as err:
+                checks.append({
+                    "name": "project",
+                    "ok": False,
+                    "detail": f"Invalid {config_path}: {err}",
+                })
+            else:
+                checks.append({
+                    "name": "project",
+                    "ok": True,
+                    "detail": f"Found and validated {config_path}",
+                })
         passed = all(check["ok"] for check in checks)
         if args.format == "json":
             print(json.dumps({"status": "PASS" if passed else "FAIL", "checks": checks}, indent=2))
