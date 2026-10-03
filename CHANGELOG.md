@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-10-03
+
+### Added
+- Added `--repeat` and Action/config `repeat` support to detect flaky runtime behavior per distribution.
+- Added attempt counts and `FLAKY` status to JSON, Markdown, SARIF, terminal, and GitHub Step Summary reports.
+
+### Fixed
+- Bounded project configuration reads to prevent oversized configuration files from consuming unbounded memory.
+- Prefer Docker's blocking wait API over repeated synchronous container reloads, while retaining a bounded compatibility fallback.
+- Removed duplicated CLI execution error handling and the unused `asdict` import.
+
 ## [0.8.3] - 2026-10-02
 
 - Corrected the PyPI homepage and demo links to point to the OpsScript Gate Pages site.

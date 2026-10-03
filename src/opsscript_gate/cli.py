@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Hard timeout in seconds per container (default: {DEFAULT_TIMEOUT}s)",
     )
     run_parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat each distribution run to detect flaky runtime behavior (default: 1)",
+    )
+    run_parser.add_argument(
         "--format",
         choices=["table", "markdown", "json", "sarif"],
         default="table",
@@ -162,6 +168,30 @@ def parse_packages_argument(packages_raw: list[str] | None) -> list[str]:
     return validate_packages(packages)
 
 
+def run_checked_matrix(
+    args: argparse.Namespace, script_path: str, matrix: list[str]
+) -> RunReport | None:
+    """Run one script and normalize user-facing Docker/runtime errors."""
+    try:
+        return run_matrix(
+            script_path=script_path,
+            matrix=matrix,
+            timeout=args.timeout,
+            shell_mode=args.shell,
+            jobs=args.jobs,
+            mem_limit=args.mem_limit,
+            pids_limit=args.pids_limit,
+            network=args.network,
+            packages=args.packages,
+            repeat=args.repeat,
+        )
+    except DockerDaemonError as err:
+        sys.stderr.write(f"Docker Error: {err}\n")
+    except Exception as err:
+        sys.stderr.write(f"Unexpected Error: {err}\n")
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main CLI entrypoint."""
     parser = build_parser()
@@ -228,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.preset = None
             if "--preset" in explicit:
                 args.matrix = None
-            for key in ("jobs", "timeout", "pids_limit", "max_scripts"):
+            for key in ("jobs", "timeout", "pids_limit", "max_scripts", "repeat"):
                 value = getattr(args, key)
                 if value is not None and value < 1:
                     raise ValueError(f"{key.replace('_', '-')} must be positive")
@@ -285,7 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
                     "executions": len(target_scripts) * len(matrix), "shell": args.shell,
-                    "network": args.network, "packages": args.packages, "timeout": args.timeout}
+                    "network": args.network, "packages": args.packages, "timeout": args.timeout,
+                    "repeat": args.repeat}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
             output = json.dumps(plan, indent=2) if args.format == "json" else (
@@ -293,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
                 + "\n".join(f"  {path}" for path in target_scripts)
                 + f"\nImages: {', '.join(matrix)}\nContainer executions: {plan['executions']}"
                 + (f"\nPackages: {', '.join(args.packages)}" if args.packages else "")
-                + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s"
+                + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s | Repeat: {args.repeat}"
             )
             return 0 if publish_output(output, args.output) else 1
 
@@ -305,23 +336,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if len(target_scripts) == 1:
             script_path = target_scripts[0]
-            try:
-                report = run_matrix(
-                    script_path=script_path,
-                    matrix=matrix,
-                    timeout=args.timeout,
-                    shell_mode=args.shell,
-                    jobs=args.jobs,
-                    mem_limit=args.mem_limit,
-                    pids_limit=args.pids_limit,
-                    network=args.network,
-                    packages=args.packages,
-                )
-            except DockerDaemonError as err:
-                sys.stderr.write(f"Docker Error: {err}\n")
-                return 1
-            except Exception as err:
-                sys.stderr.write(f"Unexpected Error: {err}\n")
+            report = run_checked_matrix(args, script_path, matrix)
+            if report is None:
                 return 1
 
             # Format report output
@@ -350,23 +366,8 @@ def main(argv: list[str] | None = None) -> int:
         multi_start = time.perf_counter()
 
         for script_path in target_scripts:
-            try:
-                report = run_matrix(
-                    script_path=script_path,
-                    matrix=matrix,
-                    timeout=args.timeout,
-                    shell_mode=args.shell,
-                    jobs=args.jobs,
-                    mem_limit=args.mem_limit,
-                    pids_limit=args.pids_limit,
-                    network=args.network,
-                    packages=args.packages,
-                )
-            except DockerDaemonError as err:
-                sys.stderr.write(f"Docker Error: {err}\n")
-                return 1
-            except Exception as err:
-                sys.stderr.write(f"Unexpected Error: {err}\n")
+            report = run_checked_matrix(args, script_path, matrix)
+            if report is None:
                 return 1
 
             multi_reports[script_path] = report

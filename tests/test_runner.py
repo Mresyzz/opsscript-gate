@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from docker.errors import DockerException
 
-from opsscript_gate.cli import build_parser, main, parse_matrix_argument, parse_packages_argument
+from opsscript_gate.cli import build_parser, main, parse_matrix_argument, parse_packages_argument, publish_output
 from opsscript_gate.discovery import discover_scripts, is_shell_script
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, MultiScriptReport, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint, REMEDIATION_RULES
@@ -325,6 +325,29 @@ def test_reporter_terminal_table():
     assert "alpine:3.20" in table_output
     assert "Result: FAILED" in table_output
     assert "cmd not found" in table_output
+
+
+def test_reporter_terminal_table_handles_empty_and_long_rows():
+    empty = format_terminal_table(RunReport())
+    assert "Distro" in empty
+    assert "Result: PASSED" in empty
+
+    long_error = SingleResult(
+        "alpine:3.20", DistroStatus.FAIL, 1, 0.1, error_message="x" * 200
+    )
+    table = format_terminal_table(RunReport([long_error]))
+    assert "x" * 47 + "..." in table
+
+
+def test_publish_output_writes_and_reports_os_errors(tmp_path, capsys):
+    target = tmp_path / "reports" / "result.txt"
+    assert publish_output("hello", str(target)) is True
+    assert target.read_text(encoding="utf-8") == "hello\n"
+    assert "hello" in capsys.readouterr().out
+
+    blocked = tmp_path / "file"
+    blocked.write_text("already a file", encoding="utf-8")
+    assert publish_output("nope", str(blocked / "child.txt")) is False
 
 
 def test_reporter_github_summary():
@@ -1482,6 +1505,42 @@ def test_run_matrix_concurrency_and_order_preservation(tmp_path):
     assert len(report.results) == 4
     # Crucial assertion: results MUST match the original matrix sequence exactly
     assert [r.distro for r in report.results] == matrix
+
+
+def test_run_matrix_repeat_marks_flaky_runtime(tmp_path):
+    script_file = tmp_path / "flaky.sh"
+    script_file.write_text("#!/bin/sh\necho maybe\n", encoding="utf-8")
+    calls: dict[str, int] = {}
+
+    def fake_run_on_distro(**kwargs):
+        distro = kwargs["distro"]
+        calls[distro] = calls.get(distro, 0) + 1
+        if calls[distro] == 1:
+            return SingleResult(distro, DistroStatus.PASS, 0, 0.1)
+        return SingleResult(distro, DistroStatus.FAIL, 1, 0.2, error_message="intermittent failure")
+
+    with mock.patch("opsscript_gate.runner.run_on_distro", side_effect=fake_run_on_distro):
+        report = run_matrix(
+            script_path=str(script_file),
+            matrix=["alpine:3.20"],
+            repeat=2,
+            client=mock.MagicMock(),
+        )
+
+    result = report.results[0]
+    assert result.status == DistroStatus.FLAKY
+    assert result.attempts == 2
+    assert result.passed_attempts == 1
+    assert result.failed_attempts == 1
+    assert result.to_dict()["flaky"] is True
+    assert report.all_passed is False
+
+
+def test_run_matrix_rejects_non_positive_repeat(tmp_path):
+    script_file = tmp_path / "script.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="repeat"):
+        run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=0, client=mock.MagicMock())
 
 
 def test_run_on_distro_resource_limits(tmp_path):

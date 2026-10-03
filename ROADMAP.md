@@ -4,6 +4,15 @@ This roadmap tracks features delivered in recent releases and areas under consid
 
 ---
 
+## Delivered in v0.9.0
+
+- [x] **Flaky Runtime Detection (`--repeat` / `repeat`)**: Repeat each distribution
+  run and report mixed pass/fail outcomes as `FLAKY` with attempt counts.
+- [x] **Bounded Configuration Loading**: Reject oversized project configuration files
+  before parsing them.
+- [x] **Blocking Container Wait**: Prefer Docker's wait API over repeated synchronous
+  status reloads while retaining a test-double fallback.
+
 ## Delivered in v0.4.0
 
 - [x] **High-confidence Line-level GitHub Actions Annotations**: Emits safe `::error` annotations linking failure lines directly on pull request file diffs.
