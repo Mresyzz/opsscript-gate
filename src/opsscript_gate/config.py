@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.0
+      - uses: Mresyzz/opsscript-gate@v0.9.1
         with:
           config: .opsscript-gate.json
 """,
