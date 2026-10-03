@@ -533,10 +533,6 @@ def _sarif_result(result: SingleResult, script_path: str) -> dict[str, object] |
         "message": {"text": _sarif_message(result)},
         "locations": [{"physicalLocation": physical_location}],
         "properties": properties,
-        "help": {
-            "text": rule_name,
-            "uri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
-        },
     }
 
 
@@ -552,6 +548,10 @@ def _sarif_run(results: list[dict[str, object]]) -> dict[str, object]:
                         "id": rule_id,
                         "name": rule_name,
                         "shortDescription": {"text": rule_name},
+                        "help": {
+                            "text": rule_name,
+                            "uri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
+                        },
                         "helpUri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
                     }
                     for rule_id, rule_name in _SARIF_RULES.values()

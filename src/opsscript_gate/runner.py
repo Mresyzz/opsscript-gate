@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import shlex
 import tempfile
 import time
@@ -58,6 +59,17 @@ _DANGEROUS_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # Neutralize lines starting with "::" to prevent forged GitHub Actions workflow commands
 # e.g. "::error file=fake.sh::forged" -> "[container] ::error file=fake.sh::forged"
 _WORKFLOW_COMMAND_LINE_RE = re.compile(r"^(::)", re.MULTILINE)
+
+UTF8_BOM = b"\xef\xbb\xbf"
+PACKAGE_SETUP_ERROR_MARKER = "OPSSCRIPT_GATE_SETUP_ERROR:"
+
+
+def _is_wait_timeout_error(exc: Exception) -> bool:
+    """Return whether a Docker wait exception represents an actual timeout."""
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    name = exc.__class__.__name__.lower()
+    return name in {"readtimeout", "readtimeouterror", "sockettimeout"}
 
 
 def sanitize_log_output(text: str) -> str:
@@ -258,6 +270,9 @@ def inspect_shebang(script_path: str) -> ShebangParseResult:
             error_message=f"Failed to read script to parse shebang: {exc}",
         )
 
+    if first_line_bytes.startswith(UTF8_BOM):
+        first_line_bytes = first_line_bytes[len(UTF8_BOM):]
+
     raw_content = first_line_bytes.rstrip(b"\r\n")
     if len(first_line_bytes) > MAX_SHEBANG_BYTES and not first_line_bytes.endswith((b"\n", b"\r")):
         return ShebangParseResult(
@@ -429,20 +444,28 @@ def prepare_script(
     if not os.path.isfile(abs_path):
         return abs_path, None
 
-    # First pass: stream-check if any CRLF exists without loading the entire file into RAM
+    # First pass: stream-check if any CRLF or a leading UTF-8 BOM exists without
+    # loading the entire file into RAM.
     has_crlf = False
+    has_bom = False
+    chunk_size = max(3, chunk_size)
     with open(abs_path, "rb") as f:
         prev_byte = b""
+        first_chunk = True
         while True:
             chunk = f.read(chunk_size)
             if not chunk:
                 break
+            if first_chunk:
+                has_bom = chunk.startswith(UTF8_BOM)
+                first_chunk = False
             if b"\r\n" in chunk or (prev_byte == b"\r" and chunk.startswith(b"\n")):
                 has_crlf = True
-                break
+                if has_bom:
+                    break
             prev_byte = chunk[-1:]
 
-    if not has_crlf:
+    if not has_crlf and not has_bom:
         return abs_path, None
 
     # Stream-normalize CRLF into temporary file in fixed-size chunks
@@ -450,12 +473,18 @@ def prepare_script(
     try:
         with open(abs_path, "rb") as src:
             carry_cr = False
+            first_chunk = True
             while True:
                 chunk = src.read(chunk_size)
                 if not chunk:
                     if carry_cr:
                         temp_file.write(b"\r")
                     break
+
+                if first_chunk:
+                    if chunk.startswith(UTF8_BOM):
+                        chunk = chunk[len(UTF8_BOM):]
+                    first_chunk = False
 
                 if carry_cr:
                     if chunk.startswith(b"\n"):
@@ -586,6 +615,9 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
 
     package_args = " ".join(shlex.quote(package) for package in packages)
     install = (
+        "setup_failed() { code=$?; "
+        f"echo '{PACKAGE_SETUP_ERROR_MARKER} package installation failed (exit code' \"$code\" ')' >&2; "
+        "exit \"$code\"; }; "
         "if command -v apt-get >/dev/null 2>&1; then "
         "mkdir -p /tmp/opsscript-apt-archives/partial && "
         "apt-get -o APT::Sandbox::User=root "
@@ -599,10 +631,10 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
         "-o APT::Update::Post-Invoke-Success::= "
         "-o Dir::Cache::archives=/tmp/opsscript-apt-archives/ "
         f"install -y --no-install-recommends {package_args} && "
-        "(rm -rf /tmp/opsscript-apt-archives /var/lib/apt/lists/* || true); "
+        "(rm -rf /tmp/opsscript-apt-archives /var/lib/apt/lists/* || true) || setup_failed; "
         "elif command -v apk >/dev/null 2>&1; then "
-        f"apk add --no-cache {package_args}; "
-        "else echo 'No supported package manager found (apt-get or apk)' >&2; exit 125; fi"
+        f"apk add --no-cache {package_args} || setup_failed; "
+        f"else echo '{PACKAGE_SETUP_ERROR_MARKER} no supported package manager found (apt-get or apk)' >&2; exit 125; fi"
     )
     target_command = " ".join(shlex.quote(part) for part in command)
     return ["/bin/sh", "-c", f"{install} && exec {target_command}"]
@@ -751,14 +783,30 @@ def run_on_distro(
         # Test doubles and older clients that do not return a status dict fall back
         # to the bounded polling path below.
         timed_out = False
+        wait_error: Exception | None = None
         wait_result = None
         wait_fn = getattr(container, "wait", None)
         if callable(wait_fn):
             try:
                 wait_result = wait_fn(timeout=max(0.01, float(timeout)))
-            except Exception:
-                timed_out = True
+            except Exception as exc:
+                if _is_wait_timeout_error(exc):
+                    timed_out = True
+                else:
+                    wait_error = exc
         if not isinstance(wait_result, dict) and not timed_out:
+            if wait_error is not None:
+                duration = time.perf_counter() - start_time
+                raw_logs = collect_container_logs(container)
+                output = sanitize_log_output(raw_logs)
+                return SingleResult(
+                    distro=distro,
+                    status=DistroStatus.ERROR,
+                    exit_code=None,
+                    duration=duration,
+                    output_snippet=extract_snippet(output),
+                    error_message=f"Container wait failed: {wait_error}",
+                )
             while True:
                 elapsed = time.perf_counter() - start_time
                 if elapsed >= timeout:
@@ -799,7 +847,24 @@ def run_on_distro(
         exit_code = state.get("ExitCode")
 
         if exit_code is None:
-            exit_code = 0 if container.status == "exited" else 1
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=duration,
+                output_snippet=extract_snippet(output),
+                error_message="Container exited without a Docker exit code; execution result is unknown",
+            )
+
+        if PACKAGE_SETUP_ERROR_MARKER in output:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=exit_code,
+                duration=duration,
+                output_snippet=extract_snippet(output),
+                error_message="Container package setup failed before the script ran",
+            )
 
         if exit_code == 0:
             return SingleResult(

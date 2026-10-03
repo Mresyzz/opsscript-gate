@@ -226,6 +226,29 @@ def test_run_on_distro_package_setup_wraps_command(tmp_path):
     assert "APT::Update::Post-Invoke-Success::=" in command[2]
     assert "apk add --no-cache curl ca-certificates" in command[2]
     assert "exec /bin/sh -c" in command[2]
+    assert "OPSSCRIPT_GATE_SETUP_ERROR:" in command[2]
+
+
+def test_run_on_distro_package_setup_failure_is_error(tmp_path):
+    script_file = tmp_path / "test.sh"
+    script_file.write_text("#!/bin/sh\necho should-not-run\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {"ExitCode": 125}}
+    mock_container.logs.return_value = (
+        b"OPSSCRIPT_GATE_SETUP_ERROR: no supported package manager found (apt-get or apk)\n"
+    )
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(
+        mock_client, str(script_file), "scratch:latest", packages=["curl"], network="bridge"
+    )
+
+    assert result.status == DistroStatus.ERROR
+    assert result.exit_code == 125
+    assert "package setup failed" in (result.error_message or "")
 
 
 def test_package_setup_requires_network(tmp_path):
@@ -264,6 +287,42 @@ def test_run_on_distro_fail_mock(tmp_path):
     assert "apt-get: not found" in result.output_snippet
     assert "127" in (result.error_message or "")
     mock_container.remove.assert_called_once_with(force=True)
+
+
+def test_run_on_distro_missing_exit_code_fails_closed(tmp_path):
+    script_file = tmp_path / "unknown.sh"
+    script_file.write_text("#!/bin/sh\necho unknown\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.status = "exited"
+    mock_container.attrs = {"State": {}}
+    mock_container.logs.return_value = b"unknown\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(mock_client, str(script_file), "debian:12-slim")
+
+    assert result.status == DistroStatus.ERROR
+    assert result.exit_code is None
+    assert "without a Docker exit code" in (result.error_message or "")
+
+
+def test_run_on_distro_wait_api_error_is_not_timeout(tmp_path):
+    script_file = tmp_path / "wait-error.sh"
+    script_file.write_text("#!/bin/sh\necho wait\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.wait.side_effect = RuntimeError("Docker daemon disconnected")
+    mock_container.logs.return_value = b"wait failed\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(mock_client, str(script_file), "debian:12-slim")
+
+    assert result.status == DistroStatus.ERROR
+    assert result.status != DistroStatus.TIMED_OUT
+    assert "wait failed" in (result.error_message or "")
+    mock_container.kill.assert_not_called()
 
 
 def test_run_on_distro_timeout_kill_mock(tmp_path):
@@ -400,6 +459,8 @@ def test_reporter_sarif_contains_failure_location_and_metadata():
     assert finding["locations"][0]["physicalLocation"]["region"]["startLine"] == 4
     assert finding["properties"]["distribution"] == "alpine:3.20"
     assert finding["properties"]["command"] == "apt-get"
+    assert "help" not in finding
+    assert payload["runs"][0]["tool"]["driver"]["rules"][0]["help"]["uri"].endswith("#ci-output")
 
 
 def test_reporter_multi_sarif_keeps_script_paths():
@@ -596,6 +657,17 @@ def test_inspect_shebang_matrix(tmp_path):
     res_crlf = inspect_shebang(str(crlf_file))
     assert res_crlf.status == ShebangStatus.RECOGNIZED
     assert res_crlf.interpreter == "bash"
+
+    bom_file = tmp_path / "bom.sh"
+    bom_file.write_bytes(b"\xef\xbb\xbf#!/bin/sh\necho hi\r\n")
+    res_bom = inspect_shebang(str(bom_file))
+    assert res_bom.status == ShebangStatus.RECOGNIZED
+    prepared_bom, temp_bom = prepare_script(str(bom_file))
+    try:
+        assert open(prepared_bom, "rb").read().startswith(b"#!/bin/sh\n")
+    finally:
+        if temp_bom is not None:
+            temp_bom.close()
 
     # 3. Leading whitespace before #! must be treated as missing
     lead_space = tmp_path / "lead_space.sh"
