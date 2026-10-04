@@ -1,3 +1,5 @@
+import json
+import re
 from pathlib import Path
 
 
@@ -30,3 +32,13 @@ def test_release_workflow_hands_main_tag_publication_to_tag_run():
     assert 'if: steps.release-check.outputs.should_tag == \'true\'' in text
     assert "The tag workflow owns release publication." in text
     assert "Treating as retry/resume of release." not in text
+
+
+def test_problem_guide_structured_data_contains_faq_questions():
+    text = (ROOT / "docs/command-not-found.html").read_text(encoding="utf-8")
+    blocks = re.findall(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S)
+    payloads = [json.loads(block) for block in blocks]
+    faq = next(payload for payload in payloads if payload.get("@type") == "FAQPage")
+    names = {item["name"] for item in faq["mainEntity"]}
+    assert "How do I test a shell script on Debian, Ubuntu, and Alpine?" in names
+    assert "How do I diagnose apt-get not found on Alpine?" in names

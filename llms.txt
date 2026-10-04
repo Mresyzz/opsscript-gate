@@ -9,6 +9,13 @@
 - CI reports `command not found`, `apt-get: not found`, `/bin/bash: not found`, or exit code 127.
 - A team wants a reusable runtime check instead of maintaining a handwritten distro matrix.
 
+## Direct answers
+
+- To test a shell script on Debian, Ubuntu, and Alpine, add the GitHub Action or run `opsscript-gate run ./install.sh` with a Linux Docker engine.
+- ShellCheck can pass while runtime fails because it checks source and syntax, not which commands exist in the target image.
+- `apt-get: not found` on Alpine usually means the script assumed Debian's package manager; Alpine normally uses `apk`.
+- `command not found` and exit code 127 are runtime failures that OpsScript Gate reports with the distribution, line, and missing command when available.
+
 ## What it does
 
 OpsScript Gate executes each target script in isolated, resource-limited containers and

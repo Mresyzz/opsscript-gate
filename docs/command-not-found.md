@@ -117,3 +117,27 @@ run in the Linux environments we support?**
 
 See the [Alpine incompatibility example](../examples/alpine-incompatibility/README.md),
 [troubleshooting guide](troubleshooting.md), or the [interactive demo](https://mresyzz.github.io/opsscript-gate/).
+
+## Frequently asked questions
+
+### How do I test a shell script on Debian, Ubuntu, and Alpine?
+
+Add the OpsScript Gate GitHub Action or install the CLI, then run the script in real
+containers for each distribution. The report identifies the failing image, exit code,
+line, and missing command.
+
+### Why can ShellCheck pass while the installer still fails?
+
+ShellCheck analyzes source and syntax. It cannot know which binaries are installed in
+the image that executes the script. Runtime execution exposes missing commands and
+package-manager assumptions.
+
+### How do I diagnose `apt-get: not found` on Alpine?
+
+Alpine normally uses `apk`. Detect the available package manager or document a
+distribution-specific prerequisite instead of assuming Debian's APT exists everywhere.
+
+### Can I run the check without GitHub Actions?
+
+Yes. Install `opsscript-gate` from PyPI, make sure a Docker engine running Linux
+containers is reachable, and run `opsscript-gate run ./install.sh`.
