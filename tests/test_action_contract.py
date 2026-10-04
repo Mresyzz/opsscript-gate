@@ -42,3 +42,4 @@ def test_problem_guide_structured_data_contains_faq_questions():
     names = {item["name"] for item in faq["mainEntity"]}
     assert "How do I test a shell script on Debian, Ubuntu, and Alpine?" in names
     assert "How do I diagnose apt-get not found on Alpine?" in names
+    assert 'rel="canonical" href="https://mresyzz.github.io/opsscript-gate/command-not-found.html"' in text
