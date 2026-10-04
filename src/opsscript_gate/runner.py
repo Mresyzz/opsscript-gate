@@ -1119,7 +1119,15 @@ def run_matrix(
 
         passed = sum(result.status == DistroStatus.PASS for result in attempts)
         failed = repeat - passed
-        representative = next((r for r in attempts if r.status != DistroStatus.PASS), attempts[-1])
+        non_passed = [r for r in attempts if r.status != DistroStatus.PASS]
+        # Preserve the most actionable failure when one attempt also reports a
+        # transient daemon error. A diagnostic-bearing result is more useful
+        # than an earlier transport error with no exit code.
+        representative = (
+            next((r for r in non_passed if r.diagnostic is not None), None)
+            or next((r for r in non_passed if r.exit_code not in (None, 0)), None)
+            or (non_passed[0] if non_passed else attempts[-1])
+        )
         if passed and failed:
             status = DistroStatus.FLAKY
             message = (

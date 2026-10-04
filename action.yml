@@ -139,9 +139,10 @@ runs:
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")
         done <<< "$INPUT_EXCLUDE"
-        if [ "$INPUT_DRY_RUN" = "true" ]; then
+        DRY_RUN_VALUE="$(printf '%s' "$INPUT_DRY_RUN" | tr '[:upper:]' '[:lower:]')"
+        if [ "$DRY_RUN_VALUE" = "true" ]; then
           ARGS+=("--dry-run")
-        elif [ "$INPUT_DRY_RUN" != "false" ]; then
+        elif [ "$DRY_RUN_VALUE" != "false" ]; then
           echo "dry-run must be true or false" >&2
           exit 1
         fi

@@ -111,6 +111,8 @@ def discover_scripts(
         current_path = Path(dirpath)
 
         for filename in filenames:
+            if filename.startswith("."):
+                continue
             file_path = current_path / filename
             if is_shell_script(file_path, max_size_bytes=max_size_bytes):
                 try:

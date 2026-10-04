@@ -184,6 +184,12 @@ def test_discovery_recognizes_bom_shebang_without_extension(tmp_path):
     assert discover_scripts(str(tmp_path)) == ["./bin-script"]
 
 
+def test_discovery_skips_hidden_shell_files(tmp_path):
+    (tmp_path / ".env.sh").write_text("#!/bin/sh\necho hidden\n")
+    (tmp_path / "visible.sh").write_text("#!/bin/sh\necho visible\n")
+    assert discover_scripts(str(tmp_path)) == ["./visible.sh"]
+
+
 def test_dry_run_repeat_count_is_included(project, capsys):
     assert main(["run", "install.sh", "--dry-run", "--format", "json", "--repeat", "3"]) == 0
     plan = json.loads(capsys.readouterr().out)

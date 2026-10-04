@@ -475,6 +475,7 @@ def test_publish_output_writes_and_reports_os_errors(tmp_path, capsys):
     blocked = tmp_path / "file"
     blocked.write_text("already a file", encoding="utf-8")
     assert publish_output("nope", str(blocked / "child.txt")) is False
+    assert "nope" in capsys.readouterr().out
 
 
 def test_reporter_github_summary():
@@ -532,6 +533,18 @@ def test_reporter_sarif_contains_failure_location_and_metadata():
         "text": "Runtime compatibility failure"
     }
     assert payload["runs"][0]["tool"]["driver"]["rules"][0]["helpUri"].endswith("#ci-output")
+
+
+def test_reporter_sarif_normalizes_absolute_script_paths(tmp_path):
+    script = tmp_path / "scripts" / "install.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    result = SingleResult("alpine:3.20", DistroStatus.FAIL, 1, 0.1)
+    payload = json.loads(format_sarif(RunReport([result]), script_path=str(script)))
+    uri = payload["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert not os.path.isabs(uri)
+    assert not uri.startswith("../")
+    assert uri.endswith("install.sh")
 
 
 def test_reporter_multi_sarif_keeps_script_paths():
@@ -1726,6 +1739,36 @@ def test_run_matrix_repeat_marks_flaky_runtime(tmp_path):
     assert result.failed_attempts == 1
     assert result.to_dict()["flaky"] is True
     assert report.all_passed is False
+
+
+def test_run_matrix_repeat_keeps_actionable_diagnostic(tmp_path):
+    script_file = tmp_path / "flaky-diagnostic.sh"
+    script_file.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    calls = {"count": 0}
+
+    def fake_run_on_distro(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return SingleResult("alpine:3.20", DistroStatus.ERROR, None, 0.1, error_message="daemon reset")
+        if calls["count"] == 2:
+            return SingleResult(
+                "alpine:3.20", DistroStatus.FAIL, 127, 0.1,
+                diagnostic=FailureDiagnostic(
+                    kind="missing_command", message="command not found: curl", command="curl", line=4
+                ),
+            )
+        return SingleResult("alpine:3.20", DistroStatus.PASS, 0, 0.1)
+
+    with mock.patch("opsscript_gate.runner.run_on_distro", side_effect=fake_run_on_distro):
+        report = run_matrix(
+            str(script_file), matrix=["alpine:3.20"], repeat=3, client=mock.MagicMock()
+        )
+
+    result = report.results[0]
+    assert result.status == DistroStatus.FLAKY
+    assert result.diagnostic is not None
+    assert result.diagnostic.command == "curl"
+    assert result.exit_code == 127
 
 
 def test_run_matrix_rejects_non_positive_repeat(tmp_path):

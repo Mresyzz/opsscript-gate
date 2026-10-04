@@ -524,8 +524,18 @@ _SARIF_RULES = {
 def _sarif_path(script_path: str) -> str:
     """Return a repository-relative SARIF artifact path."""
     clean = sanitize_display_text(script_path or "script.sh").replace("\\", "/")
+    # SARIF locations are interpreted relative to the checked-out repository.
+    # Convert absolute local/CI paths before serializing and avoid emitting a
+    # path that escapes the repository when the target lives elsewhere.
+    if os.path.isabs(clean) or re.match(r"^[A-Za-z]:/", clean):
+        try:
+            clean = os.path.relpath(clean, os.getcwd()).replace("\\", "/")
+        except ValueError:
+            clean = os.path.basename(clean)
     while clean.startswith("./"):
         clean = clean[2:]
+    if clean == ".." or clean.startswith("../"):
+        clean = os.path.basename(clean)
     return clean or "script.sh"
 
 

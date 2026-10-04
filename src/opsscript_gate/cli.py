@@ -446,6 +446,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def publish_output(output: str, filename: str | None) -> bool:
+    # Always keep the terminal result visible even when persistence fails.
+    print(output)
     if filename:
         try:
             path = Path(filename)
@@ -454,7 +456,6 @@ def publish_output(output: str, filename: str | None) -> bool:
         except OSError as err:
             sys.stderr.write(f"Error writing report: {err}\n")
             return False
-    print(output)
     return True
 
 
