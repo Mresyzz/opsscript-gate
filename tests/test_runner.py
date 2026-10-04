@@ -1787,6 +1787,8 @@ def test_run_matrix_rejects_non_positive_repeat(tmp_path):
         run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=0, client=mock.MagicMock())
     with pytest.raises(ValueError, match="repeat"):
         run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=1.5, client=mock.MagicMock())
+    with pytest.raises(ValueError, match="must not exceed"):
+        run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=21, client=mock.MagicMock())
 
 
 def test_run_matrix_rejects_invalid_matrix_values(tmp_path):

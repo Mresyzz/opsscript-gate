@@ -168,8 +168,8 @@ container. The same selection can be previewed locally with
 
 ### Detect intermittent runtime failures
 
-Use `--repeat N` when a script sometimes passes and sometimes fails in CI. OpsScript
-Gate runs each distribution N times and reports `FLAKY` when the same distribution has
+Use `--repeat N` when a script sometimes passes and sometimes fails in CI. Values from
+1 through 20 are accepted. OpsScript Gate runs each distribution N times and reports `FLAKY` when the same distribution has
 both passing and failing attempts. The JSON, Markdown, SARIF, annotations, and step
 summary include the attempt counts so a retry cannot silently turn an unstable script
 green.

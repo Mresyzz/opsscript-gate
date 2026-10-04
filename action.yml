@@ -23,7 +23,7 @@ inputs:
     required: false
     default: ''
   repeat:
-    description: 'Repeat each distribution run to detect flaky runtime behavior (default: 1)'
+    description: 'Repeat each distribution run to detect flaky runtime behavior (default: 1, maximum: 20)'
     required: false
     default: ''
   format:

@@ -11,6 +11,7 @@
 - Fixed release workflow tag handoff so a `main` push cannot publish the same version twice.
 - Made `doctor` reject Docker's Windows-container mode before Linux image checks begin.
 - Added problem-first FAQ content, structured data, canonical URLs, and AI-readable answers for runtime compatibility searches.
+- Bounded repeat runs to 20 attempts per distribution to prevent accidental unbounded container work and result retention.
 - Refreshed active workflow templates, examples, and documentation to `v0.9.2`.
 
 ## [0.9.1] - 2026-10-03

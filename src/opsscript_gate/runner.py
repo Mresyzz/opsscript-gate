@@ -16,7 +16,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import PACKAGE_NAME_RE, validate_memory_limit, validate_packages
+from opsscript_gate.config import MAX_REPEAT_ATTEMPTS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -1050,6 +1050,8 @@ def run_matrix(
     """
     if type(repeat) is not int or repeat < 1:
         raise ValueError("repeat must be a positive integer")
+    if repeat > MAX_REPEAT_ATTEMPTS:
+        raise ValueError(f"repeat must not exceed {MAX_REPEAT_ATTEMPTS}")
 
     try:
         mode = ShellMode(shell_mode)

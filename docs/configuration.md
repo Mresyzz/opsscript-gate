@@ -53,7 +53,7 @@ names to install inside each test container before the target script runs. The
 runner uses `apt-get` for Debian/Ubuntu images and `apk` for Alpine images. It
 accepts package names only, never shell commands, and requires `network: bridge`.
 The default is an empty list, so existing networking settings and execution remain unchanged.
-`repeat` runs each distribution more than once and reports `FLAKY` when at least one
+`repeat` runs each distribution more than once (up to 20 attempts) and reports `FLAKY` when at least one
 attempt passes and another fails. Keep it at `1` for the normal fast gate; use `3` or
 `5` while investigating intermittent CI failures.
 
