@@ -24,6 +24,19 @@ def sanitize_display_text(text: str) -> str:
     )
 
 
+def sanitize_workflow_text(text: str) -> str:
+    """Remove spoofing controls while retaining CR/LF for workflow escaping."""
+    return "".join(
+        ch
+        for ch in text
+        if not (
+            (ord(ch) < 32 and ch not in "\r\n\t")
+            or 0x7F <= ord(ch) <= 0x9F
+            or unicodedata.category(ch) == "Cf"
+        )
+    )
+
+
 def escape_inline_code(text: str) -> str:
     """
     Escape text for safe inclusion inside Markdown inline code spans (`...`).
@@ -43,6 +56,7 @@ def escape_markdown_text(text: str) -> str:
     """
     if not text:
         return ""
+    text = sanitize_display_text(text)
     # Neutralize HTML tags and entities
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     # Escape brackets, parentheses, pipes, backticks, and backslashes to prevent links/code spans
@@ -76,7 +90,11 @@ def escape_markdown_table_cell(text: str) -> str:
         .replace("</summary>", "<\\/summary>")
         .replace("<summary>", "<\\summary>")
     )
-    return html.escape(cleaned.replace("|", "\\|"), quote=False)
+    escaped = html.escape(cleaned, quote=False)
+    escaped = escaped.replace("\\", "\\\\").replace("|", "\\|")
+    for special in ("`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "!", ">", "~"):
+        escaped = escaped.replace(special, f"\\{special}")
+    return escaped
 
 
 def escape_html_text(text: str) -> str:
@@ -113,6 +131,10 @@ def format_safe_code_fence(content: str, language: str = "text") -> list[str]:
             current_run += 1
             if current_run >= max_backticks:
                 max_backticks = current_run + 1
+        elif ch == "\\" and current_run:
+            # Escaped backticks still represent a user-controlled fence attempt;
+            # count the run conservatively even though the slash separates bytes.
+            continue
         else:
             current_run = 0
 
@@ -125,6 +147,7 @@ def escape_github_property(value: str) -> str:
     Escape property values for GitHub Actions workflow commands.
     Escapes %, \\r, \\n, :, and ,
     """
+    value = sanitize_workflow_text(value)
     return (
         value.replace("%", "%25")
         .replace("\r", "%0D")
@@ -139,6 +162,7 @@ def escape_github_data(value: str) -> str:
     Escape message body content for GitHub Actions workflow commands.
     Escapes %, \\r, and \\n
     """
+    value = sanitize_workflow_text(value)
     return (
         value.replace("%", "%25")
         .replace("\r", "%0D")
@@ -361,14 +385,14 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         else:
             status_icon = "⚠️ ERROR"
 
-        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(sanitize_display_text(r.distro))}`")
+        distro_cell = f"`{escape_markdown_table_cell(escape_inline_code(sanitize_display_text(r.distro)))}`"
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
 
         if r.status == DistroStatus.PASS:
             raw_diag = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_diag = sanitize_display_text(r.error_message or "Runtime was non-deterministic")
+            raw_diag = r.error_message or "Runtime was non-deterministic"
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
@@ -376,7 +400,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
             if r.diagnostic.hint:
                 raw_diag += f"<br>💡 *{r.diagnostic.hint}*"
         elif r.error_message:
-            raw_diag = sanitize_display_text(r.error_message)
+            raw_diag = r.error_message
         elif r.status != DistroStatus.PASS:
             raw_diag = f"Non-zero exit code: {r.exit_code}"
         else:
@@ -401,11 +425,11 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     ]
     for r in report.results:
         icon = "✅" if r.status == DistroStatus.PASS else ("⚠️" if r.status == DistroStatus.FLAKY else "❌")
-        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(sanitize_display_text(r.distro))}`")
+        distro_cell = f"`{escape_markdown_table_cell(escape_inline_code(sanitize_display_text(r.distro)))}`"
         if r.status == DistroStatus.PASS:
             raw_detail = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_detail = sanitize_display_text(r.error_message or "Runtime was non-deterministic")
+            raw_detail = r.error_message or "Runtime was non-deterministic"
         elif r.diagnostic:
             safe_cmd = escape_inline_code(r.diagnostic.command or "")
             raw_detail = f"Missing `{safe_cmd}`"
@@ -414,7 +438,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
             if r.diagnostic.hint:
                 raw_detail += f" — *{r.diagnostic.hint}*"
         elif r.error_message:
-            raw_detail = sanitize_display_text(r.error_message)
+            raw_detail = r.error_message
         else:
             raw_detail = "-"
         detail_cell = escape_markdown_table_cell(raw_detail)
@@ -501,7 +525,7 @@ _SARIF_RULES = {
 
 def _sarif_path(script_path: str) -> str:
     """Return a repository-relative SARIF artifact path."""
-    clean = (script_path or "script.sh").replace("\\", "/")
+    clean = sanitize_display_text(script_path or "script.sh").replace("\\", "/")
     while clean.startswith("./"):
         clean = clean[2:]
     return clean or "script.sh"
@@ -534,14 +558,14 @@ def _sarif_result(result: SingleResult, script_path: str) -> dict[str, object] |
         physical_location["region"] = {"startLine": result.diagnostic.line}
 
     properties: dict[str, object] = {
-        "distribution": result.distro,
+        "distribution": sanitize_display_text(result.distro),
         "status": result.status.value,
         "durationSeconds": round(result.duration, 3),
     }
     if result.exit_code is not None:
         properties["exitCode"] = result.exit_code
     if result.diagnostic and result.diagnostic.command:
-        properties["command"] = result.diagnostic.command
+        properties["command"] = sanitize_display_text(result.diagnostic.command)
 
     return {
         "ruleId": rule_id,

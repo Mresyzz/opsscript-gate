@@ -62,8 +62,14 @@ class SingleResult:
     failed_attempts: int | None = None
 
     def __post_init__(self) -> None:
-        if self.attempts < 1:
+        if type(self.attempts) is not int or self.attempts < 1:
             raise ValueError("attempts must be a positive integer")
+        for field_name, value in (
+            ("passed_attempts", self.passed_attempts),
+            ("failed_attempts", self.failed_attempts),
+        ):
+            if value is not None and type(value) is not int:
+                raise ValueError(f"{field_name} must be an integer")
         if self.passed_attempts is None and self.failed_attempts is None:
             if self.status == DistroStatus.PASS:
                 self.passed_attempts, self.failed_attempts = self.attempts, 0

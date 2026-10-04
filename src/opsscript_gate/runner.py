@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 import os
 import re
-import socket
 import shlex
+import socket
 import tempfile
 import time
 import unicodedata
@@ -33,6 +34,7 @@ MAX_LOG_TAIL_LINES: int = 500
 MAX_SHEBANG_BYTES: int = 4096
 SCRIPT_READ_CHUNK_SIZE: int = 64 * 1024  # 64 KiB
 MAX_CONCURRENT_JOBS: int = 32
+MAX_NANO_CPUS: int = 1_000_000_000  # One CPU; Docker nano_cpus uses 1e-9 CPU units.
 MAX_TMPFS_BYTES: int = 64 * 1024 * 1024
 MAX_FILE_SIZE_BYTES: int = 64 * 1024 * 1024
 
@@ -678,7 +680,7 @@ def _runtime_option_error(
         timeout_value = float(timeout)
     except (TypeError, ValueError):
         return "timeout must be a positive number"
-    if timeout_value <= 0:
+    if not math.isfinite(timeout_value) or timeout_value <= 0:
         return "timeout must be a positive number"
     if type(pids_limit) is not int or pids_limit < 1:
         return "pids_limit must be a positive integer"
@@ -730,6 +732,19 @@ def run_on_distro(
             duration=0.0,
             output_snippet="",
             error_message=option_error,
+        )
+    try:
+        poll_interval_value = float(poll_interval)
+    except (TypeError, ValueError):
+        poll_interval_value = float("nan")
+    if not math.isfinite(poll_interval_value) or poll_interval_value <= 0:
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message="poll_interval must be a positive number",
         )
     package_list = validate_packages(package_list)
     if package_list and network == "none":
@@ -839,7 +854,7 @@ def run_on_distro(
             "network_mode": network,
             "mem_limit": mem_limit,
             "pids_limit": pids_limit,
-            "nano_cpus": 1_000_000,
+            "nano_cpus": MAX_NANO_CPUS,
             "tmpfs": {"/tmp": f"rw,nosuid,nodev,size={MAX_TMPFS_BYTES}"},
             "ulimits": [
                 docker.types.Ulimit(
@@ -896,7 +911,7 @@ def run_on_distro(
                 if status_str in ("exited", "dead", "stopped"):
                     break
 
-                time.sleep(min(poll_interval, max(0.0, timeout - elapsed)))
+                time.sleep(min(poll_interval_value, max(0.0, timeout - elapsed)))
 
         if timed_out:
             try:
@@ -1010,7 +1025,7 @@ def run_matrix(
     optionally running containers concurrently with ThreadPoolExecutor.
     Results strictly preserve the original matrix order.
     """
-    if repeat < 1:
+    if type(repeat) is not int or repeat < 1:
         raise ValueError("repeat must be a positive integer")
 
     try:

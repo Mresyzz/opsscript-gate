@@ -42,11 +42,15 @@ def load_config(filename: str | None) -> dict:
     if filename is None and not path.exists():
         return {}
     try:
-        if path.stat().st_size > MAX_CONFIG_SIZE_BYTES:
+        # Read one byte beyond the limit so a concurrent file replacement or growth
+        # cannot bypass the stat-based size check and force an unbounded allocation.
+        with path.open("rb") as stream:
+            raw_config = stream.read(MAX_CONFIG_SIZE_BYTES + 1)
+        if len(raw_config) > MAX_CONFIG_SIZE_BYTES:
             raise ValueError(
                 f"configuration exceeds {MAX_CONFIG_SIZE_BYTES // 1024} KiB limit"
             )
-        config = json.loads(path.read_text(encoding="utf-8-sig"))
+        config = json.loads(raw_config.decode("utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"Cannot load {path}: {exc}") from exc
     if not isinstance(config, dict):

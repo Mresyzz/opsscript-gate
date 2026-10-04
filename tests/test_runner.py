@@ -32,6 +32,7 @@ from opsscript_gate.runner import (
     DEFAULT_TIMEOUT,
     MAX_CONCURRENT_JOBS,
     MAX_FILE_SIZE_BYTES,
+    MAX_NANO_CPUS,
     MAX_TMPFS_BYTES,
     SUPPORTED_SHEBANG_COMMANDS,
     DockerDaemonError,
@@ -98,6 +99,8 @@ def test_single_result_infers_attempt_counts_for_repeated_result():
     result = SingleResult("alpine:3.20", DistroStatus.PASS, 0, 0.1, attempts=3)
     assert result.passed_attempts == 3
     assert result.failed_attempts == 0
+    with pytest.raises(ValueError, match="attempts"):
+        SingleResult("alpine:3.20", DistroStatus.PASS, 0, 0.1, attempts=1.5)
 
 
 def test_extract_snippet():
@@ -247,6 +250,16 @@ def test_run_on_distro_validates_direct_api_options(tmp_path):
     )
     assert result.status == DistroStatus.ERROR
     assert "pids_limit" in (result.error_message or "")
+
+
+def test_run_on_distro_rejects_invalid_poll_interval(tmp_path):
+    script_file = tmp_path / "poll.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    result = run_on_distro(
+        mock.MagicMock(), str(script_file), "debian:12-slim", poll_interval=0
+    )
+    assert result.status == DistroStatus.ERROR
+    assert "poll_interval" in (result.error_message or "")
 
 
 def test_run_on_distro_package_setup_wraps_command(tmp_path):
@@ -1698,6 +1711,8 @@ def test_run_matrix_rejects_non_positive_repeat(tmp_path):
     script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     with pytest.raises(ValueError, match="repeat"):
         run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=0, client=mock.MagicMock())
+    with pytest.raises(ValueError, match="repeat"):
+        run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=1.5, client=mock.MagicMock())
 
 
 def test_run_on_distro_resource_limits(tmp_path):
@@ -1725,7 +1740,7 @@ def test_run_on_distro_resource_limits(tmp_path):
     assert create_kwargs["mem_limit"] == "128m"
     assert create_kwargs["pids_limit"] == 64
     assert create_kwargs["network_mode"] == "none"
-    assert create_kwargs["nano_cpus"] == 1_000_000
+    assert create_kwargs["nano_cpus"] == MAX_NANO_CPUS
     assert create_kwargs["tmpfs"]["/tmp"].endswith(f"size={MAX_TMPFS_BYTES}")
     assert create_kwargs["ulimits"][0]["Soft"] == MAX_FILE_SIZE_BYTES
     assert create_kwargs["read_only"] is True
@@ -2290,6 +2305,31 @@ def test_reporter_table_escapes_html_payloads():
     card = format_markdown_compatibility_card(RunReport([result]), "test.sh")
     assert "<img" not in card
     assert "&lt;img" in card
+
+
+def test_reporter_table_escapes_markdown_links_in_error_text():
+    result = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=1,
+        duration=0.1,
+        error_message="[click](https://evil.example) *bold*",
+    )
+    card = format_markdown_compatibility_card(RunReport([result]), "test.sh")
+    assert "\\[click\\]\\(https://evil.example\\)" in card
+
+
+def test_reporter_escapes_control_characters_in_direct_text_inputs():
+    assert "\u202e" not in escape_markdown_text("safe\u202evalue")
+    assert "\x9b" not in escape_github_data("safe\x9bvalue")
+    sarif = json.loads(
+        format_sarif(
+            RunReport([SingleResult("alpine\u202e:3.20", DistroStatus.FAIL, 1, 0.1)]),
+            script_path="scripts/\u202einstall.sh",
+        )
+    )
+    serialized = json.dumps(sarif, ensure_ascii=False)
+    assert "\u202e" not in serialized
 
 
 
