@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.0
+      - uses: Mresyzz/opsscript-gate@v0.9.2
         with:
           script-path: scripts/install.sh
           shell: auto

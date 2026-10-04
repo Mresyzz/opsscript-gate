@@ -192,6 +192,21 @@ def run_checked_matrix(
     return None
 
 
+def _output_overwrites_protected(output_path: Path, protected: list[Path]) -> bool:
+    """Reject paths that resolve to or share an inode with a protected file."""
+    if output_path in protected:
+        return True
+    if not output_path.exists():
+        return False
+    for target in protected:
+        try:
+            if target.exists() and os.path.samefile(output_path, target):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main CLI entrypoint."""
     parser = build_parser()
@@ -324,13 +339,13 @@ def main(argv: list[str] | None = None) -> int:
             output_path = Path(args.output).resolve()
             protected = [Path(p).resolve() for p in target_scripts]
             protected.append(Path(args.config or ".opsscript-gate.json").resolve())
-            if output_path in protected:
+            if _output_overwrites_protected(output_path, protected):
                 sys.stderr.write("Error: output must not overwrite a target script or configuration\n")
                 return 1
 
         if args.dry_run:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
-                    "executions": len(target_scripts) * len(matrix), "shell": args.shell,
+                    "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
                     "repeat": args.repeat}
             if changed_selection:
@@ -345,9 +360,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if publish_output(output, args.output) else 1
 
         if not target_scripts:
-            output = (
-                f"No changed shell scripts since {args.changed_since}; skipping compatibility checks."
-            )
+            message = f"No changed shell scripts since {args.changed_since}; skipping compatibility checks."
+            if args.format == "json":
+                output = json.dumps({
+                    "all_passed": True,
+                    "changed_since": args.changed_since,
+                    "scripts": [],
+                    "skipped": True,
+                }, indent=2)
+            elif args.format == "sarif":
+                output = format_sarif(RunReport([]))
+            elif args.format == "markdown":
+                output = format_github_summary(RunReport([]))
+            else:
+                output = message
             return 0 if publish_output(output, args.output) else 1
 
         if len(target_scripts) == 1:
@@ -370,7 +396,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             # Emit GitHub line annotations if in CI
-            emit_github_annotations(report, script_path=script_path)
+            if args.format not in ("json", "sarif"):
+                emit_github_annotations(report, script_path=script_path)
 
             # Automatic GitHub Actions Step Summary injection
             write_github_step_summary(report, script_path=script_path)
@@ -387,7 +414,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             multi_reports[script_path] = report
-            emit_github_annotations(report, script_path=script_path)
+            if args.format not in ("json", "sarif"):
+                emit_github_annotations(report, script_path=script_path)
 
         total_duration = time.perf_counter() - multi_start
         all_passed = all(r.all_passed for r in multi_reports.values())

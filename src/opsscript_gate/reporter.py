@@ -3,12 +3,25 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from opsscript_gate import __version__
 from opsscript_gate.models import DistroStatus, MultiScriptReport, RunReport, SingleResult
 
 # Structure-altering Markdown characters in regular prose:
 # \ ` * _ [ ] ( ) # + - ! > ~ |
 _MARKDOWN_SPECIAL_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!>~|])")
+
+
+def sanitize_display_text(text: str) -> str:
+    """Remove terminal and Unicode format controls from untrusted display text."""
+    if not text:
+        return ""
+    return "".join(
+        ch
+        for ch in text
+        if not (ord(ch) < 32 or 0x7F <= ord(ch) <= 0x9F or unicodedata.category(ch) == "Cf")
+        or ch in "\t\n"
+    )
 
 
 def escape_inline_code(text: str) -> str:
@@ -18,7 +31,7 @@ def escape_inline_code(text: str) -> str:
     """
     if not text:
         return ""
-    cleaned = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    cleaned = sanitize_display_text(text).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
     return cleaned.replace("`", "'")
 
 
@@ -55,7 +68,7 @@ def escape_markdown_table_cell(text: str) -> str:
     """
     if not text:
         return ""
-    cleaned = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    cleaned = sanitize_display_text(text).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
     # Neutralize details/summary tags that could break surrounding HTML layout
     cleaned = (
         cleaned.replace("</details>", "<\\/details>")
@@ -63,7 +76,7 @@ def escape_markdown_table_cell(text: str) -> str:
         .replace("</summary>", "<\\/summary>")
         .replace("<summary>", "<\\summary>")
     )
-    return cleaned.replace("|", "\\|")
+    return html.escape(cleaned.replace("|", "\\|"), quote=False)
 
 
 def escape_html_text(text: str) -> str:
@@ -72,7 +85,7 @@ def escape_html_text(text: str) -> str:
     """
     if not text:
         return ""
-    return html.escape(text, quote=True)
+    return html.escape(sanitize_display_text(text), quote=True)
 
 
 def format_safe_code_fence(content: str, language: str = "text") -> list[str]:
@@ -86,7 +99,7 @@ def format_safe_code_fence(content: str, language: str = "text") -> list[str]:
 
     # Neutralize closing tags if present inside snippet so HTML details/summary container isn't closed
     safe_content = (
-        content.replace("</details>", "<\\/details>")
+        sanitize_display_text(content).replace("</details>", "<\\/details>")
         .replace("</summary>", "<\\/summary>")
         .replace("<details>", "<\\details>")
         .replace("<summary>", "<\\summary>")
@@ -152,23 +165,24 @@ def format_github_annotations(report: RunReport, script_path: str = "") -> list[
         norm_script = clean_path if clean_path else "script.sh"
     else:
         norm_script = "script.sh"
-    escaped_file = escape_github_property(norm_script)
+    escaped_file = escape_github_property(sanitize_display_text(norm_script))
 
     for r in report.results:
         if r.status == DistroStatus.PASS:
             continue
 
-        raw_title = f"OpsScript Gate: [{r.distro}] {r.status.value}"
+        safe_distro = sanitize_display_text(r.distro)
+        raw_title = f"OpsScript Gate: [{safe_distro}] {r.status.value}"
         if r.diagnostic and r.diagnostic.message:
-            raw_title = f"OpsScript Gate: [{r.distro}] {r.diagnostic.message}"
+            raw_title = f"OpsScript Gate: [{safe_distro}] {sanitize_display_text(r.diagnostic.message)}"
 
         msg_parts: list[str] = []
         if r.diagnostic:
-            msg_parts.append(r.diagnostic.message)
+            msg_parts.append(sanitize_display_text(r.diagnostic.message))
             if r.diagnostic.hint:
-                msg_parts.append(r.diagnostic.hint)
+                msg_parts.append(sanitize_display_text(r.diagnostic.hint))
         elif r.error_message:
-            msg_parts.append(r.error_message)
+            msg_parts.append(sanitize_display_text(r.error_message))
         else:
             msg_parts.append(f"Execution failed with exit code {r.exit_code}")
 
@@ -205,6 +219,7 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
     hints: list[tuple[str, str]] = []
 
     for r in report.results:
+        safe_distro = sanitize_display_text(r.distro)
         exit_code_str = str(r.exit_code) if r.exit_code is not None else "-"
         duration_str = f"{r.duration:.2f}s"
 
@@ -213,19 +228,19 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
             if r.attempts > 1:
                 detail = f"OK ({r.passed_attempts}/{r.attempts} attempts)"
         elif r.status == DistroStatus.FLAKY:
-            detail = r.error_message or "Runtime was non-deterministic"
+            detail = sanitize_display_text(r.error_message or "Runtime was non-deterministic")
         elif r.diagnostic:
             line_suffix = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
-            detail = f"{r.diagnostic.message}{line_suffix}"
+            detail = f"{sanitize_display_text(r.diagnostic.message)}{line_suffix}"
             if r.diagnostic.hint:
-                hints.append((r.distro, r.diagnostic.hint))
+                hints.append((safe_distro, sanitize_display_text(r.diagnostic.hint)))
         elif r.error_message:
-            detail = r.error_message
+            detail = sanitize_display_text(r.error_message)
         else:
             detail = "-"
 
         rows.append([
-            r.distro,
+            safe_distro,
             r.status.value,
             exit_code_str,
             duration_str,
@@ -287,8 +302,9 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
         lines.append("Failed Distributions - Output Snippets (last 15 lines):")
         lines.append("=" * 60)
         for r in failed_results:
-            lines.append(f"\n--- [{r.distro}] ({r.status.value}) ---")
-            lines.append(r.output_snippet)
+            safe_distro = sanitize_display_text(r.distro)
+            lines.append(f"\n--- [{safe_distro}] ({r.status.value}) ---")
+            lines.append(sanitize_display_text(r.output_snippet))
 
     return "\n".join(lines)
 
@@ -345,14 +361,14 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         else:
             status_icon = "⚠️ ERROR"
 
-        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(r.distro)}`")
+        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(sanitize_display_text(r.distro))}`")
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
 
         if r.status == DistroStatus.PASS:
             raw_diag = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_diag = r.error_message or "Runtime was non-deterministic"
+            raw_diag = sanitize_display_text(r.error_message or "Runtime was non-deterministic")
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
@@ -360,7 +376,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
             if r.diagnostic.hint:
                 raw_diag += f"<br>💡 *{r.diagnostic.hint}*"
         elif r.error_message:
-            raw_diag = r.error_message
+            raw_diag = sanitize_display_text(r.error_message)
         elif r.status != DistroStatus.PASS:
             raw_diag = f"Non-zero exit code: {r.exit_code}"
         else:
@@ -385,11 +401,11 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     ]
     for r in report.results:
         icon = "✅" if r.status == DistroStatus.PASS else ("⚠️" if r.status == DistroStatus.FLAKY else "❌")
-        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(r.distro)}`")
+        distro_cell = escape_markdown_table_cell(f"`{escape_inline_code(sanitize_display_text(r.distro))}`")
         if r.status == DistroStatus.PASS:
             raw_detail = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_detail = r.error_message or "Runtime was non-deterministic"
+            raw_detail = sanitize_display_text(r.error_message or "Runtime was non-deterministic")
         elif r.diagnostic:
             safe_cmd = escape_inline_code(r.diagnostic.command or "")
             raw_detail = f"Missing `{safe_cmd}`"
@@ -398,7 +414,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
             if r.diagnostic.hint:
                 raw_detail += f" — *{r.diagnostic.hint}*"
         elif r.error_message:
-            raw_detail = r.error_message
+            raw_detail = sanitize_display_text(r.error_message)
         else:
             raw_detail = "-"
         detail_cell = escape_markdown_table_cell(raw_detail)
@@ -492,13 +508,13 @@ def _sarif_path(script_path: str) -> str:
 
 
 def _sarif_message(result: SingleResult) -> str:
-    parts = [f"[{result.distro}] {result.status.value}"]
+    parts = [f"[{sanitize_display_text(result.distro)}] {result.status.value}"]
     if result.diagnostic:
-        parts.append(result.diagnostic.message)
+        parts.append(sanitize_display_text(result.diagnostic.message))
         if result.diagnostic.hint:
-            parts.append(result.diagnostic.hint)
+            parts.append(sanitize_display_text(result.diagnostic.hint))
     elif result.error_message:
-        parts.append(result.error_message)
+        parts.append(sanitize_display_text(result.error_message))
     elif result.exit_code is not None:
         parts.append(f"Execution exited with code {result.exit_code}.")
     return " — ".join(parts)
@@ -550,7 +566,6 @@ def _sarif_run(results: list[dict[str, object]]) -> dict[str, object]:
                         "shortDescription": {"text": rule_name},
                         "help": {
                             "text": rule_name,
-                            "uri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
                         },
                         "helpUri": "https://github.com/Mresyzz/opsscript-gate#ci-output",
                     }

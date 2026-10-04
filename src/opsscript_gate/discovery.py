@@ -42,9 +42,13 @@ MAX_SCRIPT_SIZE_BYTES = 1024 * 1024  # 1 MB
 
 def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
     """Match exclusions consistently whether callers use ``foo.sh`` or ``./foo.sh``."""
-    normalized_path = rel_path[2:] if rel_path.startswith("./") else rel_path
+    normalized_path = rel_path.replace("\\", "/")
+    if normalized_path.startswith("./"):
+        normalized_path = normalized_path[2:]
     for pattern in patterns or []:
-        normalized_pattern = pattern[2:] if pattern.startswith("./") else pattern
+        normalized_pattern = pattern.replace("\\", "/")
+        if normalized_pattern.startswith("./"):
+            normalized_pattern = normalized_pattern[2:]
         if fnmatch.fnmatchcase(normalized_path, normalized_pattern):
             return True
     return False
@@ -72,7 +76,7 @@ def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES
         with open(file_path, "rb") as f:
             first_line_bytes = f.readline(256)
 
-        first_line = first_line_bytes.decode("utf-8", errors="ignore").strip()
+        first_line = first_line_bytes.decode("utf-8-sig", errors="ignore").strip()
         return any(first_line == prefix or first_line.startswith(prefix + " ")
                    for prefix in SHELL_SHEBANG_PREFIXES)
     except (OSError, PermissionError):

@@ -58,17 +58,23 @@ class SingleResult:
     error_message: str | None = None
     diagnostic: FailureDiagnostic | None = None
     attempts: int = 1
-    passed_attempts: int = 1
-    failed_attempts: int = 0
+    passed_attempts: int | None = None
+    failed_attempts: int | None = None
 
     def __post_init__(self) -> None:
         if self.attempts < 1:
             raise ValueError("attempts must be a positive integer")
-        if self.status != DistroStatus.PASS and self.attempts == 1:
-            # Preserve the old constructor shape while keeping failure counts honest.
-            if self.passed_attempts == 1 and self.failed_attempts == 0:
-                self.passed_attempts = 0
-                self.failed_attempts = 1
+        if self.passed_attempts is None and self.failed_attempts is None:
+            if self.status == DistroStatus.PASS:
+                self.passed_attempts, self.failed_attempts = self.attempts, 0
+            else:
+                self.passed_attempts, self.failed_attempts = 0, self.attempts
+        elif self.passed_attempts is None and self.failed_attempts is not None:
+            self.passed_attempts = self.attempts - self.failed_attempts
+        elif self.failed_attempts is None and self.passed_attempts is not None:
+            self.failed_attempts = self.attempts - self.passed_attempts
+        if self.passed_attempts < 0 or self.failed_attempts < 0:
+            raise ValueError("attempt counts cannot be negative")
         if self.passed_attempts + self.failed_attempts != self.attempts:
             raise ValueError("passed_attempts + failed_attempts must equal attempts")
 

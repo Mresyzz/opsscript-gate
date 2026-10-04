@@ -30,6 +30,9 @@ from opsscript_gate.runner import (
     DEFAULT_MATRIX,
     DEFAULT_POSIX_COMMAND,
     DEFAULT_TIMEOUT,
+    MAX_CONCURRENT_JOBS,
+    MAX_FILE_SIZE_BYTES,
+    MAX_TMPFS_BYTES,
     SUPPORTED_SHEBANG_COMMANDS,
     DockerDaemonError,
     ShebangParseResult,
@@ -89,6 +92,12 @@ def test_models_all_passed():
     )
     report = RunReport(results=[res1], total_duration=1.0)
     assert report.all_passed is True
+
+
+def test_single_result_infers_attempt_counts_for_repeated_result():
+    result = SingleResult("alpine:3.20", DistroStatus.PASS, 0, 0.1, attempts=3)
+    assert result.passed_attempts == 3
+    assert result.failed_attempts == 0
 
 
 def test_extract_snippet():
@@ -196,6 +205,48 @@ def test_run_on_distro_pass_mock(tmp_path):
 
     # Verify zero-zombie container removal
     mock_container.remove.assert_called_once_with(force=True)
+
+
+def test_run_on_distro_uses_wait_status_code(tmp_path):
+    script_file = tmp_path / "wait-status.sh"
+    script_file.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 127}
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.status = "exited"
+    mock_container.logs.return_value = b"sh: line 1: missing: not found\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(mock_client, str(script_file), "alpine:3.20")
+
+    assert result.status == DistroStatus.FAIL
+    assert result.exit_code == 127
+
+
+def test_run_on_distro_marker_in_script_output_is_not_setup_error(tmp_path):
+    script_file = tmp_path / "marker.sh"
+    script_file.write_text("#!/bin/sh\necho OPSSCRIPT_GATE_SETUP_ERROR: demo\nexit 0\n", encoding="utf-8")
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_container.status = "exited"
+    mock_container.logs.return_value = b"OPSSCRIPT_GATE_SETUP_ERROR: demo\n"
+    mock_client.containers.create.return_value = mock_container
+
+    result = run_on_distro(mock_client, str(script_file), "debian:12-slim")
+
+    assert result.status == DistroStatus.PASS
+
+
+def test_run_on_distro_validates_direct_api_options(tmp_path):
+    script_file = tmp_path / "options.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    result = run_on_distro(
+        mock.MagicMock(), str(script_file), "debian:12-slim", network="host", pids_limit=0
+    )
+    assert result.status == DistroStatus.ERROR
+    assert "pids_limit" in (result.error_message or "")
 
 
 def test_run_on_distro_package_setup_wraps_command(tmp_path):
@@ -460,7 +511,10 @@ def test_reporter_sarif_contains_failure_location_and_metadata():
     assert finding["properties"]["distribution"] == "alpine:3.20"
     assert finding["properties"]["command"] == "apt-get"
     assert "help" not in finding
-    assert payload["runs"][0]["tool"]["driver"]["rules"][0]["help"]["uri"].endswith("#ci-output")
+    assert payload["runs"][0]["tool"]["driver"]["rules"][0]["help"] == {
+        "text": "Runtime compatibility failure"
+    }
+    assert payload["runs"][0]["tool"]["driver"]["rules"][0]["helpUri"].endswith("#ci-output")
 
 
 def test_reporter_multi_sarif_keeps_script_paths():
@@ -1579,6 +1633,37 @@ def test_run_matrix_concurrency_and_order_preservation(tmp_path):
     assert [r.distro for r in report.results] == matrix
 
 
+def test_run_matrix_caps_requested_concurrency(tmp_path):
+    script_file = tmp_path / "cap.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    observed: dict[str, int] = {}
+
+    class StopExecutor:
+        def __init__(self, max_workers):
+            observed["max_workers"] = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, *args, **kwargs):
+            raise RuntimeError("stop after checking worker cap")
+
+    with mock.patch("opsscript_gate.runner.ThreadPoolExecutor", StopExecutor):
+        with pytest.raises(RuntimeError, match="worker cap"):
+            run_matrix(
+                str(script_file),
+                matrix=[f"distro_{i}" for i in range(MAX_CONCURRENT_JOBS + 8)],
+                jobs=100_000,
+                client=mock.MagicMock(),
+            )
+
+    assert observed["max_workers"] == MAX_CONCURRENT_JOBS
+    assert observed["max_workers"] <= MAX_CONCURRENT_JOBS
+
+
 def test_run_matrix_repeat_marks_flaky_runtime(tmp_path):
     script_file = tmp_path / "flaky.sh"
     script_file.write_text("#!/bin/sh\necho maybe\n", encoding="utf-8")
@@ -1640,6 +1725,10 @@ def test_run_on_distro_resource_limits(tmp_path):
     assert create_kwargs["mem_limit"] == "128m"
     assert create_kwargs["pids_limit"] == 64
     assert create_kwargs["network_mode"] == "none"
+    assert create_kwargs["nano_cpus"] == 1_000_000
+    assert create_kwargs["tmpfs"]["/tmp"].endswith(f"size={MAX_TMPFS_BYTES}")
+    assert create_kwargs["ulimits"][0]["Soft"] == MAX_FILE_SIZE_BYTES
+    assert create_kwargs["read_only"] is True
 
 
 def test_script_discovery(tmp_path):
@@ -1830,6 +1919,14 @@ def test_collect_container_logs_fallback_handling():
     assert container.non_streaming_called is False
 
 
+def test_collect_container_logs_zero_limit_is_empty():
+    class StaticContainer:
+        def logs(self, **kwargs):
+            return b"unbounded payload"
+
+    assert collect_container_logs(StaticContainer(), max_bytes=0) == ""
+
+
 def test_sanitize_log_output_neutralizes_workflow_commands():
     """
     Verify untrusted container logs cannot forge GitHub Actions workflow commands.
@@ -1901,6 +1998,13 @@ def test_sanitize_log_output_ansi_and_control_chars():
     assert "Unicode: 成功 ✅ 日本語" in sanitized
     assert "Title Hijack" not in sanitized
     assert "Red Alert" in sanitized
+
+
+def test_sanitize_log_output_removes_c1_and_bidi_controls():
+    sanitized = sanitize_log_output("safe\x9b31mRED\u202eTXT\u2066TAIL")
+    assert "\x9b" not in sanitized
+    assert "\u202e" not in sanitized
+    assert "\u2066" not in sanitized
 
 
 def test_prepare_script_bounded_streaming_crlf(tmp_path):
@@ -2017,7 +2121,7 @@ def test_reporter_rendering_adversarial_payloads():
 
     # Table structure remains intact (no raw unescaped pipes breaking the row)
     assert "`hack'script.sh\\|`" in summary_md or "\\|" in summary_md
-    assert "<\\/details>" in summary_md
+    assert "&lt;/details&gt;" in summary_md or "<\\/details>" in summary_md
     assert "</details></details>" not in summary_md
     assert "\\[Fake Link\\]\\(http://evil.com\\)" in summary_md or "Fake Link" in summary_md
 
@@ -2140,7 +2244,7 @@ def test_reporter_copyable_markdown_fence_injection():
     summary_md = format_markdown_compatibility_card(report, "test.sh")
 
     # Must NOT contain an unescaped </details> inside the copyable block that closes the outer details
-    assert "<\\/details>" in summary_md
+    assert "&lt;/details&gt;" in summary_md
     # All raw </details> occurrences in the summary must be legitimate HTML container closures (exactly 2)
     raw_details_close = [m.start() for m in re.finditer(r"(?<!\\)</details>", summary_md)]
     assert len(raw_details_close) == 2, f"Unescaped closing tag found in summary: {summary_md}"
@@ -2164,17 +2268,29 @@ def test_reporter_distro_cell_escaping():
     matching_rows = [line for line in card.splitlines() if "ubuntu:24.04" in line]
     assert len(matching_rows) == 2, f"Expected 2 matching rows (matrix and copyable), got: {matching_rows}"
 
-    # Row 1: compatibility matrix table row (5 columns -> 6 delimiters)
     matrix_row = matching_rows[0]
     matrix_delims = [ch for i, ch in enumerate(matrix_row) if ch == "|" and (i == 0 or matrix_row[i-1] != "\\")]
     assert len(matrix_delims) == 6, f"Matrix table row was split by unescaped pipe: {matrix_row}"
     assert "`ubuntu:24.04\\|FAKE`" in matrix_row
 
-    # Row 2: copyable markdown matrix row (4 columns -> 5 delimiters)
     copy_row = matching_rows[1]
     copy_delims = [ch for i, ch in enumerate(copy_row) if ch == "|" and (i == 0 or copy_row[i-1] != "\\")]
     assert len(copy_delims) == 5, f"Copyable table row was split by unescaped pipe: {copy_row}"
     assert "`ubuntu:24.04\\|FAKE`" in copy_row
+
+
+def test_reporter_table_escapes_html_payloads():
+    result = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=1,
+        duration=0.1,
+        error_message="<img src=x onerror=alert(1)>",
+    )
+    card = format_markdown_compatibility_card(RunReport([result]), "test.sh")
+    assert "<img" not in card
+    assert "&lt;img" in card
+
 
 
 def test_run_matrix_prepare_script_failure_semantics(tmp_path):

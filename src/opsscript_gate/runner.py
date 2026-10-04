@@ -6,6 +6,7 @@ import socket
 import shlex
 import tempfile
 import time
+import unicodedata
 from typing import Any, Sequence
 
 import docker
@@ -14,7 +15,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import PACKAGE_NAME_RE
+from opsscript_gate.config import PACKAGE_NAME_RE, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -31,6 +32,9 @@ MAX_CAPTURED_LOG_BYTES: int = 256 * 1024  # 256 KiB
 MAX_LOG_TAIL_LINES: int = 500
 MAX_SHEBANG_BYTES: int = 4096
 SCRIPT_READ_CHUNK_SIZE: int = 64 * 1024  # 64 KiB
+MAX_CONCURRENT_JOBS: int = 32
+MAX_TMPFS_BYTES: int = 64 * 1024 * 1024
+MAX_FILE_SIZE_BYTES: int = 64 * 1024 * 1024
 
 # Fixed trusted command mappings for supported shebang interpreter forms.
 # Any executed command is guaranteed to come strictly from this predefined constant map.
@@ -55,6 +59,7 @@ _ANSI_ESCAPE_RE = re.compile(
 
 # C0 control characters to strip from terminal logs: all ASCII < 32 except \t (9) and \n (10), plus DEL (127)
 _DANGEROUS_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_DANGEROUS_C1_RE = re.compile(r"[\x80-\x9f]")
 
 # Neutralize lines starting with "::" to prevent forged GitHub Actions workflow commands
 # e.g. "::error file=fake.sh::forged" -> "[container] ::error file=fake.sh::forged"
@@ -89,6 +94,9 @@ def sanitize_log_output(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # Strip dangerous C0 control characters and DEL
     text = _DANGEROUS_CONTROL_CHAR_RE.sub("", text)
+    # Strip C1 controls and Unicode format controls (including bidi overrides)
+    text = _DANGEROUS_C1_RE.sub("", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     # Neutralize line-leading '::' commands from untrusted container logs
     return _WORKFLOW_COMMAND_LINE_RE.sub(r"[container] \1", text)
 
@@ -106,7 +114,10 @@ def sanitize_diagnostic_text(text: str, max_length: int = 200) -> str:
     # Strip complete ANSI escape sequences first
     text = _ANSI_ESCAPE_RE.sub("", text)
     # Filter out control characters (ASCII < 32 and 127)
-    sanitized = "".join(ch if (32 <= ord(ch) < 127 or ord(ch) >= 160) else " " for ch in text)
+    sanitized = "".join(
+        ch if (32 <= ord(ch) < 127 or (ord(ch) >= 160 and unicodedata.category(ch) != "Cf")) else " "
+        for ch in text
+    )
     # Collapse multiple consecutive whitespace
     sanitized = " ".join(sanitized.split())
     if len(sanitized) > max_length:
@@ -213,7 +224,13 @@ def extract_failure_diagnostic(
             continue
 
         line_str = m.group("line1") or m.group("line2")
-        line_num = int(line_str) if (line_str and line_str.isdigit()) else None
+        # Avoid converting attacker-controlled arbitrarily long digit strings.
+        line_num = None
+        if line_str and len(line_str) <= 9 and line_str.isdigit():
+            try:
+                line_num = int(line_str)
+            except ValueError:
+                line_num = None
 
         hint = generate_remediation_hint(
             distro=distro,
@@ -526,6 +543,8 @@ def collect_container_logs(
     bounded rolling byte buffer. Guarantees retained memory never exceeds max_bytes at any step.
     Does not issue non-streaming fallback to prevent unbounded line allocations.
     """
+    if max_bytes <= 0:
+        return ""
     buffer = bytearray()
     try:
         raw = container.logs(stdout=True, stderr=True, tail=tail_lines, stream=True)
@@ -547,11 +566,16 @@ def collect_container_logs(
         else:
             # If logs returned a static payload instead of a generator (e.g. mocked stream)
             if isinstance(raw, str):
-                raw_bytes = raw.encode("utf-8", errors="replace")
+                # Slice the text before encoding so a mocked or alternate client cannot
+                # make this fallback allocate a second copy of an unbounded payload.
+                raw_bytes = raw[-max_bytes:].encode("utf-8", errors="replace")
             elif isinstance(raw, (bytes, bytearray)):
-                raw_bytes = bytes(raw)
+                if max_bytes <= 0:
+                    return ""
+                # Slice the existing bytes object directly; do not copy the full payload first.
+                raw_bytes = raw[-max_bytes:]
             else:
-                raw_bytes = str(raw).encode("utf-8", errors="replace")
+                raw_bytes = str(raw)[-max(0, max_bytes):].encode("utf-8", errors="replace")
             if len(raw_bytes) > max_bytes:
                 raw_bytes = raw_bytes[-max_bytes:]
             return raw_bytes.decode("utf-8", errors="replace")
@@ -640,6 +664,35 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
     return ["/bin/sh", "-c", f"{install} && exec {target_command}"]
 
 
+def _runtime_option_error(
+    timeout: int | float,
+    mem_limit: str,
+    pids_limit: int,
+    network: str,
+    packages: Sequence[str],
+) -> str | None:
+    """Validate execution options shared by the public runner entry points."""
+    if isinstance(packages, (str, bytes)):
+        return "packages must be a list of package names"
+    try:
+        timeout_value = float(timeout)
+    except (TypeError, ValueError):
+        return "timeout must be a positive number"
+    if timeout_value <= 0:
+        return "timeout must be a positive number"
+    if type(pids_limit) is not int or pids_limit < 1:
+        return "pids_limit must be a positive integer"
+    if network not in ("bridge", "none"):
+        return "network must be bridge or none"
+    if not isinstance(mem_limit, str) or not mem_limit.strip():
+        return "mem_limit must be a nonempty Docker memory limit"
+    try:
+        validate_packages(list(packages))
+    except (TypeError, ValueError) as exc:
+        return str(exc)
+    return None
+
+
 def run_on_distro(
     client: docker.DockerClient,
     script_path: str,
@@ -658,7 +711,27 @@ def run_on_distro(
     Run a target script inside an unprivileged, non-interactive container.
     Supports posix, shebang, and auto execution modes with strict resource limits.
     """
+    if isinstance(packages, (str, bytes)):
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message="packages must be a list of package names",
+        )
     package_list = list(packages or [])
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list)
+    if option_error:
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message=option_error,
+        )
+    package_list = validate_packages(package_list)
     if package_list and network == "none":
         return SingleResult(
             distro=distro,
@@ -725,7 +798,17 @@ def run_on_distro(
             )
 
     safe_mount_src = normalize_host_path_for_docker(mount_src)
-    container_command = _wrap_with_package_setup(command, package_list)
+    try:
+        container_command = _wrap_with_package_setup(command, package_list)
+    except (TypeError, ValueError) as exc:
+        return SingleResult(
+            distro=distro,
+            status=DistroStatus.ERROR,
+            exit_code=None,
+            duration=0.0,
+            output_snippet="",
+            error_message=str(exc),
+        )
 
     # Security: Strict unprivileged options and read-only mount
     volumes = {
@@ -743,39 +826,34 @@ def run_on_distro(
     start_time = time.perf_counter()
 
     try:
+        create_kwargs = {
+            "image": distro,
+            "command": container_command,
+            "volumes": volumes,
+            "environment": environment,
+            "stdin_open": False,
+            "tty": False,
+            "privileged": False,
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "network_mode": network,
+            "mem_limit": mem_limit,
+            "pids_limit": pids_limit,
+            "nano_cpus": 1_000_000,
+            "tmpfs": {"/tmp": f"rw,nosuid,nodev,size={MAX_TMPFS_BYTES}"},
+            "ulimits": [
+                docker.types.Ulimit(
+                    name="fsize", soft=MAX_FILE_SIZE_BYTES, hard=MAX_FILE_SIZE_BYTES
+                )
+            ],
+            "read_only": not bool(package_list),
+            "detach": True,
+        }
         try:
-            container = client.containers.create(
-                image=distro,
-                command=container_command,
-                volumes=volumes,
-                environment=environment,
-                stdin_open=False,
-                tty=False,
-                privileged=False,
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges:true"],
-                network_mode=network,
-                mem_limit=mem_limit,
-                pids_limit=pids_limit,
-                detach=True,
-            )
+            container = client.containers.create(**create_kwargs)
         except ImageNotFound:
             client.images.pull(distro)
-            container = client.containers.create(
-                image=distro,
-                command=container_command,
-                volumes=volumes,
-                environment=environment,
-                stdin_open=False,
-                tty=False,
-                privileged=False,
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges:true"],
-                network_mode=network,
-                mem_limit=mem_limit,
-                pids_limit=pids_limit,
-                detach=True,
-            )
+            container = client.containers.create(**create_kwargs)
 
         container.start()
 
@@ -844,7 +922,8 @@ def run_on_distro(
 
         container.reload()
         state = getattr(container, "attrs", {}).get("State", {})
-        exit_code = state.get("ExitCode")
+        wait_exit_code = wait_result.get("StatusCode") if isinstance(wait_result, dict) else None
+        exit_code = wait_exit_code if isinstance(wait_exit_code, int) else state.get("ExitCode")
 
         if exit_code is None:
             return SingleResult(
@@ -856,7 +935,7 @@ def run_on_distro(
                 error_message="Container exited without a Docker exit code; execution result is unknown",
             )
 
-        if PACKAGE_SETUP_ERROR_MARKER in output:
+        if package_list and exit_code != 0 and PACKAGE_SETUP_ERROR_MARKER in output:
             return SingleResult(
                 distro=distro,
                 status=DistroStatus.ERROR,
@@ -946,13 +1025,21 @@ def run_matrix(
             parsed_shebang = inspect_shebang(abs_script)
 
     distro_list = list(matrix) if matrix else DEFAULT_MATRIX
+    if isinstance(packages, (str, bytes)):
+        raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list)
+    if option_error:
+        raise ValueError(option_error)
+    package_list = validate_packages(package_list)
     if package_list and network == "none":
         raise ValueError("Package setup requires network mode 'bridge'")
     docker_client = client or get_docker_client()
 
-    effective_jobs = jobs if (jobs is not None and jobs > 0) else min(2, len(distro_list))
-    effective_jobs = max(1, effective_jobs)
+    if jobs is not None and (type(jobs) is not int or jobs < 1):
+        raise ValueError("jobs must be a positive integer")
+    effective_jobs = jobs if jobs is not None else min(2, len(distro_list))
+    effective_jobs = min(max(1, effective_jobs), len(distro_list), MAX_CONCURRENT_JOBS)
 
     # Prepare script once for all parallel matrix workers
     shared_temp_file: tempfile.NamedTemporaryFile | None = None
