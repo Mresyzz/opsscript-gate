@@ -16,7 +16,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import MAX_REPEAT_ATTEMPTS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
+from opsscript_gate.config import MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -689,6 +689,8 @@ def _runtime_option_error(
         return "timeout must be a positive number"
     if not math.isfinite(timeout_value) or timeout_value <= 0:
         return "timeout must be a positive number"
+    if timeout_value > MAX_TIMEOUT_SECONDS:
+        return f"timeout must not exceed {MAX_TIMEOUT_SECONDS} seconds"
     if type(pids_limit) is not int or pids_limit < 1:
         return "pids_limit must be a positive integer"
     if network not in ("bridge", "none"):

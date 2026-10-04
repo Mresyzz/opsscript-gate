@@ -9,7 +9,7 @@ from pathlib import Path
 
 from opsscript_gate import __version__
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
-from opsscript_gate.config import DEFAULTS, MAX_REPEAT_ATTEMPTS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
+from opsscript_gate.config import DEFAULTS, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
     emit_github_annotations,
@@ -295,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"{key.replace('_', '-')} must be positive")
             if args.repeat > MAX_REPEAT_ATTEMPTS:
                 raise ValueError(f"repeat must not exceed {MAX_REPEAT_ATTEMPTS}")
+            if args.timeout > MAX_TIMEOUT_SECONDS:
+                raise ValueError(f"timeout must not exceed {MAX_TIMEOUT_SECONDS} seconds")
             if args.network not in ("bridge", "none"):
                 raise ValueError("network must be bridge or none")
             args.mem_limit = validate_memory_limit(args.mem_limit)

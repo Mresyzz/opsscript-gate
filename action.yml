@@ -19,7 +19,7 @@ inputs:
     required: false
     default: ''
   timeout:
-    description: 'Hard timeout in seconds per container (default: 60)'
+    description: 'Hard timeout in seconds per container (default: 60, maximum: 3600)'
     required: false
     default: ''
   repeat:

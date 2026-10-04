@@ -420,7 +420,7 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 | `script_path` | Positional | *Optional* | Path to target shell script (auto-discovers if omitted) |
 | `-j, --jobs` | Integer | `min(2, size)` | Number of concurrent container jobs |
 | `--matrix` | String | `debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20` | Comma-separated list of Docker images |
-| `--timeout` | Integer | `60` | Hard timeout per container in seconds |
+| `--timeout` | Integer | `60` | Hard timeout per container in seconds (maximum `3600`) |
 | `--format` | Choice | `table` | Output format: `table`, `markdown`, `json`, or `sarif` |
 | `--shell` | Choice | `posix` | Execution mode: `posix` (default), `shebang`, or `auto` |
 | `--mem-limit` | String | `256m` | Memory limit per container (e.g. `256m`, `512m`) |

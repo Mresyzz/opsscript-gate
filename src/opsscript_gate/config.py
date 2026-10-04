@@ -22,6 +22,7 @@ DEFAULTS = {
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
 MAX_REPEAT_ATTEMPTS = 20
+MAX_TIMEOUT_SECONDS = 3600
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
 
@@ -82,6 +83,8 @@ def load_config(filename: str | None) -> dict:
                 raise ValueError(f"{key} must be a positive integer")
             if key == "repeat" and value > MAX_REPEAT_ATTEMPTS:
                 raise ValueError(f"repeat must not exceed {MAX_REPEAT_ATTEMPTS}")
+            if key == "timeout" and value > MAX_TIMEOUT_SECONDS:
+                raise ValueError(f"timeout must not exceed {MAX_TIMEOUT_SECONDS} seconds")
         elif key == "exclude":
             if not isinstance(value, list) or not all(isinstance(p, str) and p for p in value):
                 raise ValueError("exclude must be a list of nonempty glob strings")

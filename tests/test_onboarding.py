@@ -80,7 +80,7 @@ def test_init_existing_workflow_leaves_config_absent(project):
 @pytest.mark.parametrize("config", [[], {"typo": 1}, {"timeout": True},
     {"jobs": 0}, {"exclude": "tests/*"}, {"shell": "fish"}, {"network": "host"},
     {"preset": "unknown"}, {"matrix": "alpine", "preset": "minimal"},
-    {"matrix": ","}, {"mem_limit": "0"}, {"mem_limit": "unlimited"}, {"repeat": 21},
+    {"matrix": ","}, {"mem_limit": "0"}, {"mem_limit": "unlimited"}, {"repeat": 21}, {"timeout": 3601},
     {"packages": "curl"}, {"packages": ["curl; touch pwned"]}])
 def test_invalid_config(project, config):
     Path(CONFIG_NAME).write_text(json.dumps(config))
@@ -264,7 +264,7 @@ def test_changed_discovery_preview_includes_revision(project, monkeypatch, capsy
     assert plan["scripts"] == ["./install.sh"]
 
 
-@pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"], ["--repeat", "21"],
+@pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"], ["--timeout", "3601"], ["--repeat", "21"],
     ["--pids-limit", "0"], ["--repeat", "0"], ["--network", "host"], ["--matrix", ","],
     ["--matrix", "alpine", "--preset", "minimal"], ["--config", "missing.json"]])
 def test_invalid_cli_before_execution(project, flags):

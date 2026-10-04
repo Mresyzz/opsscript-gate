@@ -146,3 +146,5 @@ offline networking and a smaller matrix. Existing users do not need to run `init
 
 The intentional breaking corrections are that discovery overflow now fails and
 symlinked files are no longer automatically selected. Preview discovery after upgrading.
+
+`timeout` is the hard limit per container in seconds. It must be between 1 and 3600.
