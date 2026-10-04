@@ -692,6 +692,22 @@ def _runtime_option_error(
     return None
 
 
+def _normalize_matrix(matrix: Sequence[str] | None) -> list[str]:
+    """Validate and normalize container image names for the public runner API."""
+    if matrix is None:
+        return list(DEFAULT_MATRIX)
+    if isinstance(matrix, (str, bytes)):
+        raise ValueError("matrix must be a sequence of container image names")
+    normalized = []
+    for image in matrix:
+        if not isinstance(image, str) or not image.strip():
+            raise ValueError("matrix must contain nonempty container image names")
+        normalized.append(image.strip())
+    if not normalized:
+        raise ValueError("matrix must contain at least one container image")
+    return normalized
+
+
 def run_on_distro(
     client: docker.DockerClient,
     script_path: str,
@@ -1037,7 +1053,7 @@ def run_matrix(
         if os.path.isfile(abs_script):
             parsed_shebang = inspect_shebang(abs_script)
 
-    distro_list = list(matrix) if matrix else DEFAULT_MATRIX
+    distro_list = _normalize_matrix(matrix)
     if isinstance(packages, (str, bytes)):
         raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])

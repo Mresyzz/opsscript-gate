@@ -34,13 +34,19 @@ def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bo
 def _match_curl(distro: str | None, command: str | None, kind: str) -> bool:
     if not command:
         return False
-    return command.lower().rstrip(".exe") == "curl"
+    normalized = command.lower()
+    if normalized.endswith(".exe"):
+        normalized = normalized[:-4]
+    return normalized == "curl"
 
 
 def _match_wget(distro: str | None, command: str | None, kind: str) -> bool:
     if not command:
         return False
-    return command.lower().rstrip(".exe") == "wget"
+    normalized = command.lower()
+    if normalized.endswith(".exe"):
+        normalized = normalized[:-4]
+    return normalized == "wget"
 
 
 def _match_interpreter(distro: str | None, command: str | None, kind: str) -> bool:

@@ -22,3 +22,10 @@ def test_test_workflow_has_valid_yaml_and_python_indent():
     text = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
     assert "        with:\n          python-version: ${{ matrix.python }}" in text
     assert "        with:\n        python-version" not in text
+
+
+def test_release_workflow_hands_main_tag_publication_to_tag_run():
+    text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert 'if: steps.release-check.outputs.should_tag == \'true\'' in text
+    assert "The tag workflow owns release publication." in text
+    assert "Treating as retry/resume of release." not in text

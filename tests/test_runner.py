@@ -1583,6 +1583,8 @@ def test_remediation_rules_logic():
     assert "Minimal images may not include curl" in hint_curl
     hint_wget = generate_remediation_hint("debian:12-slim", "wget")
     assert "Minimal images may not include wget" in hint_wget
+    assert generate_remediation_hint("ubuntu:24.04", "curlexe") is None
+    assert "Minimal images may not include curl" in generate_remediation_hint("ubuntu:24.04", "curl.exe")
 
     # missing interpreter
     hint_interp = generate_remediation_hint(None, "/usr/bin/bash", kind="missing_interpreter")
@@ -1733,6 +1735,18 @@ def test_run_matrix_rejects_non_positive_repeat(tmp_path):
         run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=0, client=mock.MagicMock())
     with pytest.raises(ValueError, match="repeat"):
         run_matrix(str(script_file), matrix=["alpine:3.20"], repeat=1.5, client=mock.MagicMock())
+
+
+def test_run_matrix_rejects_invalid_matrix_values(tmp_path):
+    script_file = tmp_path / "script.sh"
+    script_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    client = mock.MagicMock()
+    with pytest.raises(ValueError, match="matrix"):
+        run_matrix(str(script_file), matrix="alpine:3.20", client=client)
+    with pytest.raises(ValueError, match="at least one"):
+        run_matrix(str(script_file), matrix=iter(()), client=client)
+    with pytest.raises(ValueError, match="nonempty"):
+        run_matrix(str(script_file), matrix=["  "], client=client)
 
 
 def test_run_on_distro_resource_limits(tmp_path):

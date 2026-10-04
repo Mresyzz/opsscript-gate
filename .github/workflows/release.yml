@@ -123,17 +123,12 @@ jobs:
               TAG_SHA=$(git rev-list -n 1 "$TARGET_TAG")
               echo "Tag $TARGET_TAG already exists, pointing to commit: $TAG_SHA"
               if [ "$TAG_SHA" = "${{ github.sha }}" ]; then
-                echo "Tag $TARGET_TAG points to current commit (${{ github.sha }}). Treating as retry/resume of release."
-                IS_NEW_RELEASE="true"
-                SHOULD_TAG="false"
+                echo "Tag $TARGET_TAG already points to the current commit. The tag workflow owns release publication."
               else
                 echo "Tag $TARGET_TAG was released from earlier commit ($TAG_SHA != ${{ github.sha }}). Skipping release."
-                IS_NEW_RELEASE="false"
-                SHOULD_TAG="false"
               fi
             else
-              echo "Target tag $TARGET_TAG does not exist. Scheduling new release for commit ${{ github.sha }}."
-              IS_NEW_RELEASE="true"
+              echo "Target tag $TARGET_TAG does not exist. Creating it and handing publication to the tag workflow."
               SHOULD_TAG="true"
             fi
           else
@@ -171,7 +166,7 @@ jobs:
           retention-days: 7
 
       - name: Create and push Git tag
-        if: steps.release-check.outputs.is_new_release == 'true' && steps.release-check.outputs.should_tag == 'true'
+        if: steps.release-check.outputs.should_tag == 'true'
         shell: bash
         run: |
           TARGET_TAG="${{ steps.release-check.outputs.release_tag }}"
