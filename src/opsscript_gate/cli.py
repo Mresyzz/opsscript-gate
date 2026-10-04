@@ -9,7 +9,7 @@ from pathlib import Path
 
 from opsscript_gate import __version__
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
-from opsscript_gate.config import DEFAULTS, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
+from opsscript_gate.config import DEFAULTS, MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
     emit_github_annotations,
@@ -152,6 +152,8 @@ def parse_matrix_argument(matrix_raw: str | None) -> list[str]:
     if not matrix_raw:
         return DEFAULT_MATRIX
     images = [img.strip() for img in matrix_raw.split(",") if img.strip()]
+    if len(images) > MAX_MATRIX_IMAGES:
+        raise ValueError(f"matrix must not contain more than {MAX_MATRIX_IMAGES} images")
     return images if images else DEFAULT_MATRIX
 
 
@@ -339,7 +341,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
 
-        matrix = PRESETS[args.preset] if args.preset else parse_matrix_argument(args.matrix)
+        try:
+            matrix = PRESETS[args.preset] if args.preset else parse_matrix_argument(args.matrix)
+        except ValueError as err:
+            sys.stderr.write(f"Error: {err}\n")
+            return 1
         if args.output:
             output_path = Path(args.output).resolve()
             protected = [Path(p).resolve() for p in target_scripts]

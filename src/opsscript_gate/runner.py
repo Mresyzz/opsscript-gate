@@ -16,7 +16,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
+from opsscript_gate.config import MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -716,6 +716,8 @@ def _normalize_matrix(matrix: Sequence[str] | None) -> list[str]:
         normalized.append(image.strip())
     if not normalized:
         raise ValueError("matrix must contain at least one container image")
+    if len(normalized) > MAX_MATRIX_IMAGES:
+        raise ValueError(f"matrix must not contain more than {MAX_MATRIX_IMAGES} images")
     return normalized
 
 

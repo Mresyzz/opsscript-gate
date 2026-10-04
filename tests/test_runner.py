@@ -595,6 +595,8 @@ def test_parse_matrix_argument():
     assert parse_matrix_argument(None) == DEFAULT_MATRIX
     assert parse_matrix_argument("") == DEFAULT_MATRIX
     assert parse_matrix_argument("debian:12-slim, alpine:3.20") == ["debian:12-slim", "alpine:3.20"]
+    with pytest.raises(ValueError, match="more than 32"):
+        parse_matrix_argument(",".join(f"image:{index}" for index in range(33)))
 
 
 def test_parse_packages_argument():
@@ -1712,7 +1714,7 @@ def test_run_matrix_caps_requested_concurrency(tmp_path):
         with pytest.raises(RuntimeError, match="worker cap"):
             run_matrix(
                 str(script_file),
-                matrix=[f"distro_{i}" for i in range(MAX_CONCURRENT_JOBS + 8)],
+                    matrix=[f"distro_{i}" for i in range(MAX_CONCURRENT_JOBS)],
                 jobs=100_000,
                 client=mock.MagicMock(),
             )
@@ -1803,6 +1805,8 @@ def test_run_matrix_rejects_invalid_matrix_values(tmp_path):
         run_matrix(str(script_file), matrix=iter(()), client=client)
     with pytest.raises(ValueError, match="nonempty"):
         run_matrix(str(script_file), matrix=["  "], client=client)
+    with pytest.raises(ValueError, match="more than 32"):
+        run_matrix(str(script_file), matrix=[f"image:{index}" for index in range(33)], client=client)
 
 
 def test_run_on_distro_resource_limits(tmp_path):

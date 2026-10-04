@@ -23,6 +23,7 @@ DEFAULTS = {
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
 MAX_REPEAT_ATTEMPTS = 20
 MAX_TIMEOUT_SECONDS = 3600
+MAX_MATRIX_IMAGES = 32
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
 
@@ -100,8 +101,12 @@ def load_config(filename: str | None) -> dict:
             raise ValueError(f"Invalid {key}: {config[key]}")
     if "matrix" in config and "preset" in config:
         raise ValueError("Configure either matrix or preset, not both")
-    if "matrix" in config and not any(image.strip() for image in config["matrix"].split(",")):
-        raise ValueError("matrix must contain at least one image")
+    if "matrix" in config:
+        images = [image.strip() for image in config["matrix"].split(",") if image.strip()]
+        if not images:
+            raise ValueError("matrix must contain at least one image")
+        if len(images) > MAX_MATRIX_IMAGES:
+            raise ValueError(f"matrix must not contain more than {MAX_MATRIX_IMAGES} images")
     return config
 
 

@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ''
   matrix:
-    description: 'Comma-separated container images to test (e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
+    description: 'Comma-separated container images to test (maximum: 32; e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
     required: false
     default: ''
   jobs:

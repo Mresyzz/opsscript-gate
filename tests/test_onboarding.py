@@ -89,6 +89,13 @@ def test_invalid_config(project, config):
         run.assert_not_called()
 
 
+def test_matrix_count_limit(project):
+    matrix = ",".join(f"image:{index}" for index in range(33))
+    with patch("opsscript_gate.cli.run_matrix") as run:
+        assert main(["run", "--dry-run", "--matrix", matrix]) == 1
+        run.assert_not_called()
+
+
 def test_config_cli_precedence_and_saved_plan(project, capsys):
     Path(CONFIG_NAME).write_text(json.dumps({"preset": "minimal", "timeout": 5,
         "exclude": ["tests/*"]}))

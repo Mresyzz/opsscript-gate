@@ -148,3 +148,4 @@ The intentional breaking corrections are that discovery overflow now fails and
 symlinked files are no longer automatically selected. Preview discovery after upgrading.
 
 `timeout` is the hard limit per container in seconds. It must be between 1 and 3600.
+Custom `matrix` values may contain up to 32 container images.
