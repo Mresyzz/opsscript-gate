@@ -417,7 +417,16 @@ def get_docker_client() -> docker.DockerClient:
     try:
         client = docker.from_env()
         client.ping()
+        info = client.info()
+        if isinstance(info, dict):
+            os_type = info.get("OSType") or info.get("OsType")
+            if os_type and str(os_type).lower() != "linux":
+                raise DockerDaemonError(
+                    f"Docker is running in {os_type} container mode; switch to Linux containers."
+                )
         return client
+    except DockerDaemonError:
+        raise
     except DockerException as exc:
         raise DockerDaemonError(
             f"Cannot connect to Docker daemon: {exc}. "

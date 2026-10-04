@@ -162,6 +162,14 @@ def test_get_docker_client_failure():
         assert "Cannot connect to Docker daemon" in str(excinfo.value)
 
 
+def test_get_docker_client_rejects_windows_container_mode():
+    client = mock.MagicMock()
+    client.info.return_value = {"OSType": "windows"}
+    with mock.patch("docker.from_env", return_value=client):
+        with pytest.raises(DockerDaemonError, match="Linux containers"):
+            get_docker_client()
+
+
 def test_run_on_distro_missing_script(tmp_path):
     mock_client = mock.MagicMock()
     missing_file = str(tmp_path / "non_existent.sh")

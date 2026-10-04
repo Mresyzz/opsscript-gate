@@ -9,6 +9,7 @@
 - Added a one-CPU container limit and bounded Docker log rotation, while keeping disposable container filesystems writable for installers.
 - Normalized SARIF paths, preserved actionable repeat-run diagnostics, skipped hidden auto-discovered files, and kept terminal reports visible when file output fails.
 - Fixed release workflow tag handoff so a `main` push cannot publish the same version twice.
+- Made `doctor` reject Docker's Windows-container mode before Linux image checks begin.
 - Refreshed active workflow templates, examples, and documentation to `v0.9.2`.
 
 ## [0.9.1] - 2026-10-03
