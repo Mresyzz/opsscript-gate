@@ -54,6 +54,18 @@ def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
     return False
 
 
+def _is_ignored_path(rel_path: str) -> bool:
+    """Return whether a repository-relative path is outside automatic discovery."""
+    parts = rel_path.replace("\\", "/").split("/")
+    return any(
+        part in IGNORED_DIRS
+        or part.endswith(".egg-info")
+        or part.startswith(".")
+        for part in parts
+        if part
+    )
+
+
 def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES) -> bool:
     """
     Check if a file is a candidate shell script:
@@ -183,6 +195,8 @@ def discover_changed_scripts(
             resolved = candidate.resolve()
             rel_path = resolved.relative_to(root_path).as_posix()
         except (OSError, ValueError):
+            continue
+        if _is_ignored_path(rel_path):
             continue
         if _matches_exclude(rel_path, exclude):
             continue

@@ -440,7 +440,7 @@ def get_docker_client() -> docker.DockerClient:
 
 def extract_snippet(output: str, max_lines: int = SNIPPET_LINE_LIMIT) -> str:
     """Extract the last max_lines of output."""
-    if not output:
+    if not output or max_lines <= 0:
         return ""
     lines = output.strip().splitlines()
     if len(lines) <= max_lines:

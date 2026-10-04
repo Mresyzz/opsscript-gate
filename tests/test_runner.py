@@ -104,6 +104,7 @@ def test_single_result_infers_attempt_counts_for_repeated_result():
 
 def test_extract_snippet():
     assert extract_snippet("") == ""
+    assert extract_snippet("line 1\nline 2", max_lines=0) == ""
     short_text = "line 1\nline 2"
     assert extract_snippet(short_text, max_lines=5) == short_text
 

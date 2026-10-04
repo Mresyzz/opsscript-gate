@@ -178,6 +178,17 @@ def test_changed_discovery_matches_dot_slash_exclusions(tmp_path):
         assert discover_changed_scripts(str(tmp_path), exclude=["./install.sh"]) == []
 
 
+def test_changed_discovery_matches_normal_discovery_ignored_paths(tmp_path):
+    (tmp_path / "visible.sh").write_text("#!/bin/sh\necho ok\n")
+    completed = type(
+        "Completed",
+        (),
+        {"stdout": b"visible.sh\0.env.sh\0.github/hook.sh\0", "stderr": b""},
+    )()
+    with patch("opsscript_gate.discovery.subprocess.run", return_value=completed):
+        assert discover_changed_scripts(str(tmp_path), since="origin/main") == ["./visible.sh"]
+
+
 def test_discovery_recognizes_bom_shebang_without_extension(tmp_path):
     script = tmp_path / "bin-script"
     script.write_bytes(b"\xef\xbb\xbf#!/bin/sh\necho ok\n")
