@@ -180,6 +180,9 @@ def test_changed_discovery_matches_dot_slash_exclusions(tmp_path):
 
 def test_changed_discovery_matches_normal_discovery_ignored_paths(tmp_path):
     (tmp_path / "visible.sh").write_text("#!/bin/sh\necho ok\n")
+    (tmp_path / ".env.sh").write_text("#!/bin/sh\necho hidden\n")
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github/hook.sh").write_text("#!/bin/sh\necho workflow\n")
     completed = type(
         "Completed",
         (),
