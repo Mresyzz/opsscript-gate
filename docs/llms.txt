@@ -1,6 +1,6 @@
 # OpsScript Gate
 
-> OpsScript Gate is a cross-distro shell script compatibility checker for runtime testing across Debian, Ubuntu, and Alpine. It is a GitHub Action and CLI that finds failures such as `command not found`.
+> OpsScript Gate runs shell scripts in real Debian, Ubuntu, and Alpine containers to diagnose `command not found` and other cross-distro runtime failures. It is a GitHub Action and CLI.
 
 ## Use this project when
 
