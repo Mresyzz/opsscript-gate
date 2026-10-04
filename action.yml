@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Run shell scripts in real Debian, Ubuntu, and Alpine containers; diagnose command not found and cross-distro runtime failures.'
+description: 'Cross-distro shell script compatibility and portability checker for Debian, Ubuntu, and Alpine. Runs real containers to diagnose command not found.'
 author: 'Mresyzz'
 branding:
   icon: 'shield'
