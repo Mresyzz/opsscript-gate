@@ -6,7 +6,7 @@
 - Hardened SARIF, Markdown, terminal, and machine-readable output handling.
 - Prevented false package-setup errors, stale Docker wait results, hard-link overwrites, and unbounded log copies.
 - Added BOM-aware discovery, Windows exclusion normalization, bounded concurrency, and runtime option validation.
-- Added CPU, temporary filesystem, file-size, and read-only container safeguards where package setup permits.
+- Added a one-CPU container limit and bounded Docker log rotation, while keeping disposable container filesystems writable for installers.
 - Refreshed active workflow templates, examples, and documentation to `v0.9.2`.
 
 ## [0.9.1] - 2026-10-03

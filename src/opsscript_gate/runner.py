@@ -16,7 +16,7 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import PACKAGE_NAME_RE, validate_packages
+from opsscript_gate.config import PACKAGE_NAME_RE, validate_memory_limit, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint
 
@@ -35,8 +35,6 @@ MAX_SHEBANG_BYTES: int = 4096
 SCRIPT_READ_CHUNK_SIZE: int = 64 * 1024  # 64 KiB
 MAX_CONCURRENT_JOBS: int = 32
 MAX_NANO_CPUS: int = 1_000_000_000  # One CPU; Docker nano_cpus uses 1e-9 CPU units.
-MAX_TMPFS_BYTES: int = 64 * 1024 * 1024
-MAX_FILE_SIZE_BYTES: int = 64 * 1024 * 1024
 
 # Fixed trusted command mappings for supported shebang interpreter forms.
 # Any executed command is guaranteed to come strictly from this predefined constant map.
@@ -678,7 +676,7 @@ def _runtime_option_error(
         return "packages must be a list of package names"
     try:
         timeout_value = float(timeout)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return "timeout must be a positive number"
     if not math.isfinite(timeout_value) or timeout_value <= 0:
         return "timeout must be a positive number"
@@ -686,9 +684,8 @@ def _runtime_option_error(
         return "pids_limit must be a positive integer"
     if network not in ("bridge", "none"):
         return "network must be bridge or none"
-    if not isinstance(mem_limit, str) or not mem_limit.strip():
-        return "mem_limit must be a nonempty Docker memory limit"
     try:
+        validate_memory_limit(mem_limit)
         validate_packages(list(packages))
     except (TypeError, ValueError) as exc:
         return str(exc)
@@ -735,7 +732,7 @@ def run_on_distro(
         )
     try:
         poll_interval_value = float(poll_interval)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         poll_interval_value = float("nan")
     if not math.isfinite(poll_interval_value) or poll_interval_value <= 0:
         return SingleResult(
@@ -747,6 +744,8 @@ def run_on_distro(
             error_message="poll_interval must be a positive number",
         )
     package_list = validate_packages(package_list)
+    timeout = float(timeout)
+    mem_limit = validate_memory_limit(mem_limit)
     if package_list and network == "none":
         return SingleResult(
             distro=distro,
@@ -855,13 +854,12 @@ def run_on_distro(
             "mem_limit": mem_limit,
             "pids_limit": pids_limit,
             "nano_cpus": MAX_NANO_CPUS,
-            "tmpfs": {"/tmp": f"rw,nosuid,nodev,size={MAX_TMPFS_BYTES}"},
-            "ulimits": [
-                docker.types.Ulimit(
-                    name="fsize", soft=MAX_FILE_SIZE_BYTES, hard=MAX_FILE_SIZE_BYTES
-                )
-            ],
-            "read_only": not bool(package_list),
+            # Installers need to write within the disposable container. The host
+            # script remains read-only; do not make package setup change this policy.
+            "read_only": False,
+            "log_config": docker.types.LogConfig(
+                type="json-file", config={"max-size": "1m", "max-file": "2"}
+            ),
             "detach": True,
         }
         try:
@@ -1047,6 +1045,7 @@ def run_matrix(
     if option_error:
         raise ValueError(option_error)
     package_list = validate_packages(package_list)
+    mem_limit = validate_memory_limit(mem_limit)
     if package_list and network == "none":
         raise ValueError("Package setup requires network mode 'bridge'")
     docker_client = client or get_docker_client()

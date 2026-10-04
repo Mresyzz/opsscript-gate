@@ -342,9 +342,11 @@ The runner uses restricted container defaults:
 2. **Resource Constraints**:
    - Memory limits enforced per container (`--mem-limit`, default: `256m`).
    - Process caps enforced to prevent fork bombs (`--pids-limit`, default: `128`).
+   - CPU is capped at one host CPU per container and Docker's JSON log driver rotates logs.
    - Network isolation configurable (`--network bridge` or `--network none`).
 3. **Read-Only Target Mount**:
    - The tested script is mounted read-only (`:ro`) at `/tmp/target_script.sh`.
+   - The disposable container root remains writable so installers can create files during a real run.
    - No host directories or sensitive sockets are mounted into test containers.
 4. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).

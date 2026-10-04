@@ -5,6 +5,9 @@ import json
 import re
 from pathlib import Path
 
+from docker.errors import DockerException
+from docker.utils import parse_bytes
+
 CONFIG_NAME = ".opsscript-gate.json"
 PRESETS = {
     "minimal": ["debian:12-slim", "alpine:3.20"],
@@ -20,6 +23,20 @@ DEFAULTS = {
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
+
+
+def validate_memory_limit(value: object) -> str:
+    """Reject invalid or unlimited Docker memory settings before execution."""
+    message = "mem_limit must be a positive Docker memory limit (for example, 256m)"
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(message)
+    normalized = value.strip()
+    try:
+        if parse_bytes(normalized) <= 0:
+            raise ValueError(message)
+    except (DockerException, OverflowError, ValueError) as exc:
+        raise ValueError(message) from exc
+    return normalized
 
 
 def validate_packages(value: object) -> list[str]:
@@ -67,6 +84,8 @@ def load_config(filename: str | None) -> dict:
                 raise ValueError("exclude must be a list of nonempty glob strings")
         elif key == "packages":
             validate_packages(value)
+        elif key == "mem_limit":
+            validate_memory_limit(value)
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -75,6 +94,8 @@ def load_config(filename: str | None) -> dict:
             raise ValueError(f"Invalid {key}: {config[key]}")
     if "matrix" in config and "preset" in config:
         raise ValueError("Configure either matrix or preset, not both")
+    if "matrix" in config and not any(image.strip() for image in config["matrix"].split(",")):
+        raise ValueError("matrix must contain at least one image")
     return config
 
 

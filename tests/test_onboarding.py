@@ -80,6 +80,7 @@ def test_init_existing_workflow_leaves_config_absent(project):
 @pytest.mark.parametrize("config", [[], {"typo": 1}, {"timeout": True},
     {"jobs": 0}, {"exclude": "tests/*"}, {"shell": "fish"}, {"network": "host"},
     {"preset": "unknown"}, {"matrix": "alpine", "preset": "minimal"},
+    {"matrix": ","}, {"mem_limit": "0"}, {"mem_limit": "unlimited"},
     {"packages": "curl"}, {"packages": ["curl; touch pwned"]}])
 def test_invalid_config(project, config):
     Path(CONFIG_NAME).write_text(json.dumps(config))

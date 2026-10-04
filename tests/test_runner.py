@@ -7,6 +7,7 @@ from unittest import mock
 
 import pytest
 from docker.errors import DockerException
+from markdown_it import MarkdownIt
 
 from opsscript_gate.cli import build_parser, main, parse_matrix_argument, parse_packages_argument, publish_output
 from opsscript_gate.discovery import discover_scripts, is_shell_script
@@ -31,9 +32,7 @@ from opsscript_gate.runner import (
     DEFAULT_POSIX_COMMAND,
     DEFAULT_TIMEOUT,
     MAX_CONCURRENT_JOBS,
-    MAX_FILE_SIZE_BYTES,
     MAX_NANO_CPUS,
-    MAX_TMPFS_BYTES,
     SUPPORTED_SHEBANG_COMMANDS,
     DockerDaemonError,
     ShebangParseResult,
@@ -250,6 +249,11 @@ def test_run_on_distro_validates_direct_api_options(tmp_path):
     )
     assert result.status == DistroStatus.ERROR
     assert "pids_limit" in (result.error_message or "")
+    invalid_memory = run_on_distro(
+        mock.MagicMock(), str(script_file), "debian:12-slim", mem_limit="unlimited"
+    )
+    assert invalid_memory.status == DistroStatus.ERROR
+    assert "mem_limit" in (invalid_memory.error_message or "")
 
 
 def test_run_on_distro_rejects_invalid_poll_interval(tmp_path):
@@ -1142,6 +1146,22 @@ def test_integration_pass_basic():
 @pytest.mark.integration
 @pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
 @pytest.mark.parametrize("image", DEFAULT_MATRIX)
+def test_integration_installer_can_write_container_filesystem(tmp_path, image):
+    script = tmp_path / "installer.sh"
+    script.write_text(
+        "#!/bin/sh\nset -eu\n"
+        "mkdir -p /usr/local/bin\n"
+        "printf 'installed' > /usr/local/bin/opsscript-probe\n"
+        "test -s /usr/local/bin/opsscript-probe\n",
+        encoding="utf-8",
+    )
+    report = run_matrix(str(script), matrix=[image], network="none", timeout=30)
+    assert report.all_passed, report.to_dict()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not is_docker_daemon_available(), reason="Docker daemon is not running or accessible")
+@pytest.mark.parametrize("image", DEFAULT_MATRIX)
 def test_integration_package_setup(tmp_path, image):
     script = tmp_path / "needs-curl.sh"
     script.write_text(
@@ -1741,9 +1761,8 @@ def test_run_on_distro_resource_limits(tmp_path):
     assert create_kwargs["pids_limit"] == 64
     assert create_kwargs["network_mode"] == "none"
     assert create_kwargs["nano_cpus"] == MAX_NANO_CPUS
-    assert create_kwargs["tmpfs"]["/tmp"].endswith(f"size={MAX_TMPFS_BYTES}")
-    assert create_kwargs["ulimits"][0]["Soft"] == MAX_FILE_SIZE_BYTES
-    assert create_kwargs["read_only"] is True
+    assert create_kwargs["read_only"] is False
+    assert create_kwargs["log_config"]["Config"] == {"max-size": "1m", "max-file": "2"}
 
 
 def test_script_discovery(tmp_path):
@@ -2263,8 +2282,10 @@ def test_reporter_copyable_markdown_fence_injection():
     # All raw </details> occurrences in the summary must be legitimate HTML container closures (exactly 2)
     raw_details_close = [m.start() for m in re.finditer(r"(?<!\\)</details>", summary_md)]
     assert len(raw_details_close) == 2, f"Unescaped closing tag found in summary: {summary_md}"
-    # Code fence should dynamically scale to at least 4 backticks
-    assert "````markdown" in summary_md or "`````markdown" in summary_md
+    # The copyable block must still render as one code fence despite the payload.
+    rendered = MarkdownIt("commonmark", {"html": True}).enable("table").render(summary_md)
+    assert rendered.count('<pre><code class="language-markdown">') == 1
+    assert rendered.count("</details>") == 2
 
 
 def test_reporter_distro_cell_escaping():
@@ -2317,6 +2338,25 @@ def test_reporter_table_escapes_markdown_links_in_error_text():
     )
     card = format_markdown_compatibility_card(RunReport([result]), "test.sh")
     assert "\\[click\\]\\(https://evil.example\\)" in card
+    rendered = MarkdownIt("commonmark", {"html": True}).enable("table").render(card)
+    assert "<a " not in rendered
+
+
+def test_reporter_rendered_diagnostics_preserve_literal_names_and_trusted_markup():
+    result = SingleResult(
+        "registry/team/my_image:1", DistroStatus.FAIL, 127, 0.1,
+        diagnostic=FailureDiagnostic(
+            "missing_command", "command not found: foo_bar", command="foo_bar", line=1,
+            hint="Install [tool](https://evil.example) <img src=x> and try again.",
+        ),
+    )
+    card = format_markdown_compatibility_card(RunReport([result]), "test.sh")
+    rendered = MarkdownIt("commonmark", {"html": True}).enable("table").render(card)
+    assert "<code>registry/team/my_image:1</code>" in rendered
+    assert "<code>foo_bar</code>" in rendered
+    assert "<br>" in rendered
+    assert "<img " not in rendered
+    assert "<a " not in rendered
 
 
 def test_reporter_escapes_control_characters_in_direct_text_inputs():

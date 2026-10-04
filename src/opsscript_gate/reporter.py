@@ -16,6 +16,7 @@ def sanitize_display_text(text: str) -> str:
     """Remove terminal and Unicode format controls from untrusted display text."""
     if not text:
         return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     return "".join(
         ch
         for ch in text
@@ -97,6 +98,11 @@ def escape_markdown_table_cell(text: str) -> str:
     return escaped
 
 
+def _table_code_span(text: str) -> str:
+    """Keep code-span characters literal while protecting table delimiters."""
+    return "`" + escape_inline_code(text).replace("|", "\\|") + "`"
+
+
 def escape_html_text(text: str) -> str:
     """
     Escape text for safe inclusion in HTML tags and attributes (e.g. <summary>).
@@ -131,10 +137,6 @@ def format_safe_code_fence(content: str, language: str = "text") -> list[str]:
             current_run += 1
             if current_run >= max_backticks:
                 max_backticks = current_run + 1
-        elif ch == "\\" and current_run:
-            # Escaped backticks still represent a user-controlled fence attempt;
-            # count the run conservatively even though the slash separates bytes.
-            continue
         else:
             current_run = 0
 
@@ -297,7 +299,7 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
 
     lines: list[str] = []
     if script_path:
-        lines.append(f"Target: {script_path}")
+        lines.append(f"Target: {sanitize_display_text(script_path)}")
 
     lines.extend([
         sep_line,
@@ -385,28 +387,26 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         else:
             status_icon = "⚠️ ERROR"
 
-        distro_cell = f"`{escape_markdown_table_cell(escape_inline_code(sanitize_display_text(r.distro)))}`"
+        distro_cell = _table_code_span(r.distro)
         exit_code_str = f"`{r.exit_code}`" if r.exit_code is not None else "`N/A`"
         duration_str = f"`{r.duration:.2f}s`"
 
         if r.status == DistroStatus.PASS:
-            raw_diag = "OK"
+            diag_cell = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_diag = r.error_message or "Runtime was non-deterministic"
+            diag_cell = escape_markdown_table_cell(r.error_message or "Runtime was non-deterministic")
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
-            clean_cmd = f"`{escape_inline_code(r.diagnostic.command)}`" if r.diagnostic.command else "command"
-            raw_diag = f"⚠️ Missing command: {clean_cmd}{line_str}"
+            clean_cmd = _table_code_span(r.diagnostic.command) if r.diagnostic.command else "command"
+            diag_cell = f"⚠️ Missing command: {clean_cmd}{line_str}"
             if r.diagnostic.hint:
-                raw_diag += f"<br>💡 *{r.diagnostic.hint}*"
+                diag_cell += f"<br>💡 *{escape_markdown_table_cell(r.diagnostic.hint)}*"
         elif r.error_message:
-            raw_diag = r.error_message
+            diag_cell = escape_markdown_table_cell(r.error_message)
         elif r.status != DistroStatus.PASS:
-            raw_diag = f"Non-zero exit code: {r.exit_code}"
+            diag_cell = f"Non-zero exit code: {r.exit_code}"
         else:
-            raw_diag = "-"
-
-        diag_cell = escape_markdown_table_cell(raw_diag)
+            diag_cell = "-"
         lines.append(
             f"| {distro_cell} | {status_icon} | {exit_code_str} | {duration_str} | {diag_cell} |"
         )
@@ -425,23 +425,21 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     ]
     for r in report.results:
         icon = "✅" if r.status == DistroStatus.PASS else ("⚠️" if r.status == DistroStatus.FLAKY else "❌")
-        distro_cell = f"`{escape_markdown_table_cell(escape_inline_code(sanitize_display_text(r.distro)))}`"
+        distro_cell = _table_code_span(r.distro)
         if r.status == DistroStatus.PASS:
-            raw_detail = "OK"
+            detail_cell = "OK"
         elif r.status == DistroStatus.FLAKY:
-            raw_detail = r.error_message or "Runtime was non-deterministic"
+            detail_cell = escape_markdown_table_cell(r.error_message or "Runtime was non-deterministic")
         elif r.diagnostic:
-            safe_cmd = escape_inline_code(r.diagnostic.command or "")
-            raw_detail = f"Missing `{safe_cmd}`"
+            detail_cell = f"Missing {_table_code_span(r.diagnostic.command or '')}"
             if r.diagnostic.line:
-                raw_detail += f" (L{r.diagnostic.line})"
+                detail_cell += f" (L{r.diagnostic.line})"
             if r.diagnostic.hint:
-                raw_detail += f" — *{r.diagnostic.hint}*"
+                detail_cell += f" — *{escape_markdown_table_cell(r.diagnostic.hint)}*"
         elif r.error_message:
-            raw_detail = r.error_message
+            detail_cell = escape_markdown_table_cell(r.error_message)
         else:
-            raw_detail = "-"
-        detail_cell = escape_markdown_table_cell(raw_detail)
+            detail_cell = "-"
         copy_lines.append(f"| {distro_cell} | {icon} {r.status.value} | `{r.duration:.2f}s` | {detail_cell} |")
 
     copy_content = "\n".join(copy_lines)
