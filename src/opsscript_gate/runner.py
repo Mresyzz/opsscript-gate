@@ -1008,13 +1008,17 @@ def run_on_distro(
             )
         else:
             diagnostic = extract_failure_diagnostic(output, exit_code=exit_code, distro=distro)
+            if state.get("OOMKilled"):
+                err_msg = f"Container exceeded memory limit ({mem_limit}) and was killed by OOM killer (exit code: {exit_code})"
+            else:
+                err_msg = f"Script failed with non-zero exit code: {exit_code}"
             return SingleResult(
                 distro=distro,
                 status=DistroStatus.FAIL,
                 exit_code=exit_code,
                 duration=duration,
                 output_snippet=extract_snippet(output),
-                error_message=f"Script failed with non-zero exit code: {exit_code}",
+                error_message=err_msg,
                 diagnostic=diagnostic,
             )
 

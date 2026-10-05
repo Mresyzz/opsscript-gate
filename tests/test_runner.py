@@ -2561,3 +2561,97 @@ def test_remediation_curl_wget_path_and_sudo():
     assert "sudo" in hint_sudo_path
 
 
+def test_cli_rejects_unreadable_script_preflight(tmp_path, capsys):
+    script = tmp_path / "unreadable.sh"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    with mock.patch("builtins.open", side_effect=PermissionError("Access denied")):
+        with mock.patch("opsscript_gate.cli.run_checked_matrix") as mock_matrix:
+            exit_code = main(["run", str(script)])
+            assert exit_code == 1
+            mock_matrix.assert_not_called()
+
+    err = capsys.readouterr().err
+    assert "Error: Cannot read script" in err
+    assert "Access denied" in err
+
+
+def test_sarif_and_annotations_path_traversal_hardened():
+    from opsscript_gate.reporter import _sarif_path, format_github_annotations
+    from opsscript_gate.models import DistroStatus, RunReport, SingleResult
+
+    # 1. Non-leading path traversal in _sarif_path
+    assert _sarif_path("subdir/../../outside.sh") == "outside.sh"
+    assert _sarif_path("../../secret.sh") == "secret.sh"
+    assert _sarif_path("scripts/./install.sh") == "scripts/install.sh"
+
+    # 2. Path traversal in format_github_annotations
+    r1 = SingleResult("debian:12-slim", DistroStatus.FAIL, 1, 0.5, error_message="failed")
+    report = RunReport([r1])
+    anns = format_github_annotations(report, script_path="subdir/../../outside.sh")
+    assert len(anns) == 1
+    assert "file=outside.sh" in anns[0]
+    assert "../" not in anns[0]
+
+
+def test_cli_output_protects_git_and_critical_files(tmp_path, capsys):
+    script = tmp_path / "test.sh"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    # 1. Rejects output inside .git
+    with mock.patch("opsscript_gate.cli.run_checked_matrix") as mock_matrix:
+        exit_code = main(["run", str(script), "--output", ".git/config"])
+        assert exit_code == 1
+        mock_matrix.assert_not_called()
+    assert "inside .git directory" in capsys.readouterr().err
+
+    # 2. Rejects overwriting pyproject.toml
+    with mock.patch("opsscript_gate.cli.run_checked_matrix") as mock_matrix:
+        exit_code = main(["run", str(script), "--output", "pyproject.toml"])
+        assert exit_code == 1
+        mock_matrix.assert_not_called()
+    assert "must not overwrite a target script or configuration" in capsys.readouterr().err
+
+
+def test_runner_oom_killed_detection(tmp_path):
+    from opsscript_gate.runner import run_on_distro
+
+    script = tmp_path / "mem_hog.sh"
+    script.write_text("#!/bin/sh\nexit 137\n", encoding="utf-8")
+
+    mock_client = mock.MagicMock()
+    mock_container = mock.MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 137}
+    mock_container.attrs = {"State": {"ExitCode": 137, "OOMKilled": True}}
+    mock_container.logs.return_value = b""
+    mock_client.containers.create.return_value = mock_container
+
+    res = run_on_distro(
+        mock_client,
+        str(script),
+        "debian:12-slim",
+        mem_limit="128m",
+    )
+    assert res.status == DistroStatus.FAIL
+    assert res.exit_code == 137
+    assert "exceeded memory limit" in (res.error_message or "")
+    assert "OOM killer" in (res.error_message or "")
+    assert "128m" in (res.error_message or "")
+
+
+def test_matches_exclude_leading_slash_and_dotdot():
+    from opsscript_gate.discovery import _matches_exclude, _is_ignored_path
+
+    # Leading slash pattern
+    assert _matches_exclude("tests/foo.sh", ["/tests/*"]) is True
+    assert _matches_exclude("scripts/run.sh", ["/scripts/run.sh"]) is True
+    assert _matches_exclude("scripts/run.sh", ["./scripts/run.sh"]) is True
+
+    # .. traversal in _is_ignored_path
+    assert _is_ignored_path("../outside.sh") is True
+    assert _is_ignored_path("subdir/../outside.sh") is True
+    assert _is_ignored_path("./normal/script.sh") is False
+
+
+
+

@@ -180,18 +180,23 @@ def format_github_annotations(report: RunReport, script_path: str = "") -> list[
     """
     annotations: list[str] = []
     if script_path:
-        clean_path = script_path.replace("\\", "/")
-        if clean_path.startswith("./"):
-            clean_path = clean_path[2:]
-        try:
-            if os.path.isabs(clean_path):
-                clean_path = os.path.relpath(clean_path, ".").replace("\\", "/")
-        except Exception:
-            pass
+        clean_path = sanitize_display_text(script_path).replace("\\", "/")
+        if os.path.isabs(clean_path) or re.match(r"^[A-Za-z]:/", clean_path):
+            try:
+                clean_path = os.path.relpath(clean_path, os.getcwd()).replace("\\", "/")
+            except Exception:
+                clean_path = os.path.basename(clean_path)
+        norm = os.path.normpath(clean_path).replace("\\", "/")
+        while norm.startswith("./"):
+            norm = norm[2:]
+        if norm == ".." or norm.startswith("../") or "/../" in f"/{norm}/":
+            clean_path = os.path.basename(clean_path)
+        else:
+            clean_path = norm
         norm_script = clean_path if clean_path else "script.sh"
     else:
         norm_script = "script.sh"
-    escaped_file = escape_github_property(sanitize_display_text(norm_script))
+    escaped_file = escape_github_property(norm_script)
 
     for r in report.results:
         if r.status == DistroStatus.PASS:
@@ -534,8 +539,13 @@ def _sarif_path(script_path: str) -> str:
             clean = os.path.basename(clean)
     while clean.startswith("./"):
         clean = clean[2:]
-    if clean == ".." or clean.startswith("../"):
+    norm = os.path.normpath(clean).replace("\\", "/")
+    while norm.startswith("./"):
+        norm = norm[2:]
+    if norm == ".." or norm.startswith("../") or "/../" in f"/{norm}/":
         clean = os.path.basename(clean)
+    else:
+        clean = norm
     return clean or "script.sh"
 
 

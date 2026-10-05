@@ -30,6 +30,17 @@ from opsscript_gate.runner import (
     run_matrix,
 )
 
+CRITICAL_PROJECT_FILES: tuple[str, ...] = (
+    "pyproject.toml",
+    "action.yml",
+    "action.yaml",
+    "setup.py",
+    "setup.cfg",
+    "README.md",
+    "CHANGELOG.md",
+)
+
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
@@ -319,6 +330,12 @@ def main(argv: list[str] | None = None) -> int:
             if not os.path.isfile(args.script_path):
                 sys.stderr.write(f"Error: Script file not found: {args.script_path}\n")
                 return 1
+            try:
+                with open(args.script_path, "rb") as probe:
+                    probe.read(1)
+            except OSError as err:
+                sys.stderr.write(f"Error: Cannot read script {args.script_path}: {err}\n")
+                return 1
             target_scripts = [args.script_path]
         elif changed_selection:
             try:
@@ -351,8 +368,15 @@ def main(argv: list[str] | None = None) -> int:
             if output_path.is_dir():
                 sys.stderr.write("Error: output must name a file, not an existing directory\n")
                 return 1
+            if any(part == ".git" for part in output_path.parts):
+                sys.stderr.write("Error: output must not target files inside .git directory\n")
+                return 1
             protected = [Path(p).resolve() for p in target_scripts]
             protected.append(Path(args.config or ".opsscript-gate.json").resolve())
+            for critical_name in CRITICAL_PROJECT_FILES:
+                critical_path = Path(critical_name).resolve()
+                if critical_path.exists():
+                    protected.append(critical_path)
             if _output_overwrites_protected(output_path, protected):
                 sys.stderr.write("Error: output must not overwrite a target script or configuration\n")
                 return 1

@@ -41,14 +41,16 @@ MAX_SCRIPT_SIZE_BYTES = 1024 * 1024  # 1 MB
 
 
 def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
-    """Match exclusions consistently whether callers use ``foo.sh`` or ``./foo.sh``."""
+    """Match exclusions consistently whether callers use ``foo.sh``, ``./foo.sh``, or ``/foo.sh``."""
     normalized_path = rel_path.replace("\\", "/")
-    if normalized_path.startswith("./"):
+    while normalized_path.startswith("./"):
         normalized_path = normalized_path[2:]
+    normalized_path = normalized_path.lstrip("/")
     for pattern in patterns or []:
         normalized_pattern = pattern.replace("\\", "/")
-        if normalized_pattern.startswith("./"):
+        while normalized_pattern.startswith("./"):
             normalized_pattern = normalized_pattern[2:]
+        normalized_pattern = normalized_pattern.lstrip("/")
         if fnmatch.fnmatchcase(normalized_path, normalized_pattern):
             return True
     return False
@@ -62,6 +64,7 @@ def _is_ignored_path(rel_path: str) -> bool:
     parts = normalized.split("/")
     return any(
         part in IGNORED_DIRS
+        or part == ".."
         or part.endswith(".egg-info")
         or (part.startswith(".") and part not in (".", ".."))
         for part in parts
