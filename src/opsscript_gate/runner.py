@@ -71,10 +71,18 @@ PACKAGE_SETUP_ERROR_MARKER = "OPSSCRIPT_GATE_SETUP_ERROR:"
 
 def _is_wait_timeout_error(exc: Exception) -> bool:
     """Return whether a Docker wait exception represents an actual timeout."""
-    if isinstance(exc, (TimeoutError, socket.timeout)):
-        return True
-    name = exc.__class__.__name__.lower()
-    return name in {"readtimeout", "readtimeouterror", "sockettimeout"}
+    curr: BaseException | None = exc
+    visited = set()
+    while curr is not None and id(curr) not in visited:
+        visited.add(id(curr))
+        if isinstance(curr, (TimeoutError, socket.timeout)):
+            return True
+        name = curr.__class__.__name__.lower()
+        if name in {"readtimeout", "readtimeouterror", "sockettimeout"}:
+            return True
+        curr = curr.__cause__ or curr.__context__
+    return False
+
 
 
 def sanitize_log_output(text: str) -> str:
@@ -487,8 +495,7 @@ def prepare_script(
                 first_chunk = False
             if b"\r\n" in chunk or (prev_byte == b"\r" and chunk.startswith(b"\n")):
                 has_crlf = True
-                if has_bom:
-                    break
+                break
             prev_byte = chunk[-1:]
 
     if not has_crlf and not has_bom:
@@ -962,8 +969,11 @@ def run_on_distro(
                 error_message=f"Execution timed out after {timeout} seconds (container killed)",
             )
 
-        container.reload()
-        state = getattr(container, "attrs", {}).get("State", {})
+        try:
+            container.reload()
+            state = getattr(container, "attrs", {}).get("State", {})
+        except Exception:
+            state = {}
         wait_exit_code = wait_result.get("StatusCode") if isinstance(wait_result, dict) else None
         exit_code = wait_exit_code if isinstance(wait_exit_code, int) else state.get("ExitCode")
 

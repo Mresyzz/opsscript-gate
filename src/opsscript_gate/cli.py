@@ -348,6 +348,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if args.output:
             output_path = Path(args.output).resolve()
+            if output_path.is_dir():
+                sys.stderr.write("Error: output must name a file, not an existing directory\n")
+                return 1
             protected = [Path(p).resolve() for p in target_scripts]
             protected.append(Path(args.config or ".opsscript-gate.json").resolve())
             if _output_overwrites_protected(output_path, protected):

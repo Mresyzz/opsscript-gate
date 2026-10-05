@@ -56,14 +56,18 @@ def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
 
 def _is_ignored_path(rel_path: str) -> bool:
     """Return whether a repository-relative path is outside automatic discovery."""
-    parts = rel_path.replace("\\", "/").split("/")
+    normalized = rel_path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    parts = normalized.split("/")
     return any(
         part in IGNORED_DIRS
         or part.endswith(".egg-info")
-        or part.startswith(".")
+        or (part.startswith(".") and part not in (".", ".."))
         for part in parts
         if part
     )
+
 
 
 def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES) -> bool:

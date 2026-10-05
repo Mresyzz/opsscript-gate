@@ -2473,3 +2473,91 @@ def test_run_matrix_prepare_script_failure_semantics(tmp_path):
     with mock.patch("opsscript_gate.runner.prepare_script", side_effect=PermissionError("Cannot read script")):
         exit_code = main(["run", str(script_path)])
         assert exit_code == 1
+
+
+def test_is_ignored_path_dot_slash_and_hidden():
+    from opsscript_gate.discovery import _is_ignored_path
+    assert _is_ignored_path("./scripts/install.sh") is False
+    assert _is_ignored_path("./install.sh") is False
+    assert _is_ignored_path("install.sh") is False
+    assert _is_ignored_path(".git/hooks/pre-commit") is True
+    assert _is_ignored_path(".hidden/test.sh") is True
+    assert _is_ignored_path("subdir/.env.sh") is True
+
+
+def test_is_wait_timeout_error_cause_chain():
+    import socket
+    from opsscript_gate.runner import _is_wait_timeout_error
+
+    # Direct socket timeout
+    assert _is_wait_timeout_error(socket.timeout("timed out")) is True
+
+    # Wrapped timeout via __cause__
+    class ReadTimeout(Exception):
+        pass
+
+    wrapped = RuntimeError("Docker failed")
+    wrapped.__cause__ = ReadTimeout("read timeout")
+    assert _is_wait_timeout_error(wrapped) is True
+
+    # Non-timeout error
+    assert _is_wait_timeout_error(ValueError("bad value")) is False
+
+
+def test_cli_output_rejects_existing_directory_early(tmp_path, capsys):
+    out_dir = tmp_path / "reports_dir"
+    out_dir.mkdir()
+    script = tmp_path / "test.sh"
+    script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    with mock.patch("opsscript_gate.cli.run_checked_matrix") as mock_run:
+        ret = main(["run", str(script), "--output", str(out_dir)])
+        assert ret == 1
+        mock_run.assert_not_called()
+    stderr = capsys.readouterr().err
+    assert "must name a file, not an existing directory" in stderr
+
+
+def test_remediation_enterprise_distro_package_rules():
+    from opsscript_gate.remediation import generate_remediation_hint
+
+    # Debian with yum
+    hint = generate_remediation_hint(distro="debian:12-slim", command="yum")
+    assert hint is not None
+    assert "APT" in hint and "yum" in hint
+
+    # Alpine with dnf
+    hint = generate_remediation_hint(distro="alpine:3.20", command="dnf")
+    assert hint is not None
+    assert "apk" in hint and "dnf" in hint
+
+    # Fedora with apt-get
+    hint = generate_remediation_hint(distro="fedora:40", command="apt-get")
+    assert hint is not None
+    assert "RHEL/Fedora" in hint and "dnf" in hint
+
+
+def test_remediation_curl_wget_path_and_sudo():
+    from opsscript_gate.remediation import generate_remediation_hint
+
+    # Full path curl
+    hint_curl = generate_remediation_hint(distro="debian:12-slim", command="/usr/bin/curl")
+    assert hint_curl is not None
+    assert "curl" in hint_curl
+
+    # Full path wget
+    hint_wget = generate_remediation_hint(distro="alpine:3.20", command="/usr/bin/wget")
+    assert hint_wget is not None
+    assert "wget" in hint_wget
+
+    # Sudo in minimal container
+    hint_sudo = generate_remediation_hint(distro="debian:12-slim", command="sudo")
+    assert hint_sudo is not None
+    assert "sudo" in hint_sudo and "root" in hint_sudo
+
+    # Sudo with path
+    hint_sudo_path = generate_remediation_hint(distro="ubuntu:24.04", command="/usr/bin/sudo")
+    assert hint_sudo_path is not None
+    assert "sudo" in hint_sudo_path
+
+

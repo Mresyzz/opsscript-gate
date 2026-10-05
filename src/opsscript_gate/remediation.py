@@ -25,6 +25,28 @@ def _match_debian_ubuntu_apk(distro: str | None, command: str | None, kind: str)
     return ("debian" in d or "ubuntu" in d) and command.lower() == "apk"
 
 
+def _match_debian_ubuntu_yum(distro: str | None, command: str | None, kind: str) -> bool:
+    if not distro or not command:
+        return False
+    d = distro.lower()
+    return ("debian" in d or "ubuntu" in d) and command.lower() in ("yum", "dnf")
+
+
+def _match_alpine_yum(distro: str | None, command: str | None, kind: str) -> bool:
+    if not distro or not command:
+        return False
+    return "alpine" in distro.lower() and command.lower() in ("yum", "dnf")
+
+
+def _match_rhel_fedora_apt(distro: str | None, command: str | None, kind: str) -> bool:
+    if not distro or not command:
+        return False
+    d = distro.lower()
+    is_rhel = any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma"))
+    return is_rhel and command.lower() in ("apt", "apt-get", "apk")
+
+
+
 def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
@@ -34,7 +56,7 @@ def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bo
 def _match_curl(distro: str | None, command: str | None, kind: str) -> bool:
     if not command:
         return False
-    normalized = command.lower()
+    normalized = command.lower().replace("\\", "/").split("/")[-1]
     if normalized.endswith(".exe"):
         normalized = normalized[:-4]
     return normalized == "curl"
@@ -43,10 +65,19 @@ def _match_curl(distro: str | None, command: str | None, kind: str) -> bool:
 def _match_wget(distro: str | None, command: str | None, kind: str) -> bool:
     if not command:
         return False
-    normalized = command.lower()
+    normalized = command.lower().replace("\\", "/").split("/")[-1]
     if normalized.endswith(".exe"):
         normalized = normalized[:-4]
     return normalized == "wget"
+
+
+def _match_sudo(distro: str | None, command: str | None, kind: str) -> bool:
+    if not command:
+        return False
+    normalized = command.lower().replace("\\", "/").split("/")[-1]
+    if normalized.endswith(".exe"):
+        normalized = normalized[:-4]
+    return normalized == "sudo"
 
 
 def _match_interpreter(distro: str | None, command: str | None, kind: str) -> bool:
@@ -71,6 +102,21 @@ REMEDIATION_RULES: list[RemediationRule] = [
         hint="Debian/Ubuntu normally uses APT (apt-get) instead of apk.",
     ),
     RemediationRule(
+        rule_id="debian_ubuntu_yum",
+        matcher=_match_debian_ubuntu_yum,
+        hint="Debian/Ubuntu normally uses APT (apt-get) instead of yum or dnf.",
+    ),
+    RemediationRule(
+        rule_id="alpine_yum",
+        matcher=_match_alpine_yum,
+        hint="Alpine normally uses apk instead of yum or dnf.",
+    ),
+    RemediationRule(
+        rule_id="rhel_fedora_apt",
+        matcher=_match_rhel_fedora_apt,
+        hint="RHEL/Fedora family distributions normally use dnf or yum instead of apt-get or apk.",
+    ),
+    RemediationRule(
         rule_id="alpine_bash",
         matcher=_match_alpine_bash,
         hint="Alpine minimal images do not include Bash by default; consider using POSIX sh or installing bash.",
@@ -84,6 +130,11 @@ REMEDIATION_RULES: list[RemediationRule] = [
         rule_id="missing_wget",
         matcher=_match_wget,
         hint="Minimal images may not include wget; consider declaring it as a prerequisite or installing it.",
+    ),
+    RemediationRule(
+        rule_id="missing_sudo",
+        matcher=_match_sudo,
+        hint="Minimal container images do not include sudo by default; containers typically run as root or require installing sudo.",
     ),
     RemediationRule(
         rule_id="missing_interpreter",
