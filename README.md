@@ -48,7 +48,7 @@ apt-get --version
 Run it locally with `opsscript-gate run ./install.sh`, or add the following step to CI:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.9.1
+- uses: Mresyzz/opsscript-gate@v0.9.2
   with:
     script-path: install.sh
 ```
@@ -57,7 +57,7 @@ The result identifies the failing distribution, exit code, line, missing command
 
 ---
 
-## Current release: v0.9.1
+## Current version: v0.9.2 (local candidate)
 
 The current release includes a project config file, a dry-run plan, presets, exclusions,
 saved reports, changed-script selection for pull requests, and repeat runs for detecting
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.1
+      - uses: Mresyzz/opsscript-gate@v0.9.2
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -122,7 +122,7 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.9.1
+      - uses: Mresyzz/opsscript-gate@v0.9.2
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -156,7 +156,7 @@ unrelated scripts:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.9.1
+      - uses: Mresyzz/opsscript-gate@v0.9.2
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
@@ -168,8 +168,8 @@ container. The same selection can be previewed locally with
 
 ### Detect intermittent runtime failures
 
-Use `--repeat N` when a script sometimes passes and sometimes fails in CI. OpsScript
-Gate runs each distribution N times and reports `FLAKY` when the same distribution has
+Use `--repeat N` when a script sometimes passes and sometimes fails in CI. Values from
+1 through 20 are accepted. OpsScript Gate runs each distribution N times and reports `FLAKY` when the same distribution has
 both passing and failing attempts. The JSON, Markdown, SARIF, annotations, and step
 summary include the attempt counts so a retry cannot silently turn an unstable script
 green.
@@ -247,7 +247,7 @@ Use `sarif` when the result should appear in GitHub Code Scanning or another
 SARIF-compatible viewer. Upload it explicitly with the official upload action:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.9.1
+- uses: Mresyzz/opsscript-gate@v0.9.2
   with:
     script-path: scripts/install.sh
     format: sarif
@@ -342,9 +342,11 @@ The runner uses restricted container defaults:
 2. **Resource Constraints**:
    - Memory limits enforced per container (`--mem-limit`, default: `256m`).
    - Process caps enforced to prevent fork bombs (`--pids-limit`, default: `128`).
+   - CPU is capped at one host CPU per container and Docker's JSON log driver rotates logs.
    - Network isolation configurable (`--network bridge` or `--network none`).
 3. **Read-Only Target Mount**:
    - The tested script is mounted read-only (`:ro`) at `/tmp/target_script.sh`.
+   - The disposable container root remains writable so installers can create files during a real run.
    - No host directories or sensitive sockets are mounted into test containers.
 4. **Anti-Hang Deadlock Defense**:
    - Disables TTY and stdin (`stdin_open=False`, `tty=False`).
@@ -417,8 +419,8 @@ usage: opsscript-gate run [-h] [--matrix MATRIX] [-j JOBS] [--timeout TIMEOUT]
 | :--- | :--- | :--- | :--- |
 | `script_path` | Positional | *Optional* | Path to target shell script (auto-discovers if omitted) |
 | `-j, --jobs` | Integer | `min(2, size)` | Number of concurrent container jobs |
-| `--matrix` | String | `debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20` | Comma-separated list of Docker images |
-| `--timeout` | Integer | `60` | Hard timeout per container in seconds |
+| `--matrix` | String | `debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20` | Comma-separated list of Docker images (maximum `32`) |
+| `--timeout` | Integer | `60` | Hard timeout per container in seconds (maximum `3600`) |
 | `--format` | Choice | `table` | Output format: `table`, `markdown`, `json`, or `sarif` |
 | `--shell` | Choice | `posix` | Execution mode: `posix` (default), `shebang`, or `auto` |
 | `--mem-limit` | String | `256m` | Memory limit per container (e.g. `256m`, `512m`) |

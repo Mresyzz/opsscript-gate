@@ -1,5 +1,5 @@
 name: 'OpsScript Gate'
-description: 'Cross-distro shell script compatibility checker for runtime testing in Debian, Ubuntu, and Alpine. Diagnoses command not found.'
+description: 'Cross-distro shell script compatibility and portability checker for Debian, Ubuntu, and Alpine. Runs real containers to diagnose command not found.'
 author: 'Mresyzz'
 branding:
   icon: 'shield'
@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ''
   matrix:
-    description: 'Comma-separated container images to test (e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
+    description: 'Comma-separated container images to test (maximum: 32; e.g. debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20)'
     required: false
     default: ''
   jobs:
@@ -19,11 +19,11 @@ inputs:
     required: false
     default: ''
   timeout:
-    description: 'Hard timeout in seconds per container (default: 60)'
+    description: 'Hard timeout in seconds per container (default: 60, maximum: 3600)'
     required: false
     default: ''
   repeat:
-    description: 'Repeat each distribution run to detect flaky runtime behavior (default: 1)'
+    description: 'Repeat each distribution run to detect flaky runtime behavior (default: 1, maximum: 20)'
     required: false
     default: ''
   format:
@@ -139,9 +139,10 @@ runs:
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")
         done <<< "$INPUT_EXCLUDE"
-        if [ "$INPUT_DRY_RUN" = "true" ]; then
+        DRY_RUN_VALUE="$(printf '%s' "$INPUT_DRY_RUN" | tr '[:upper:]' '[:lower:]')"
+        if [ "$DRY_RUN_VALUE" = "true" ]; then
           ARGS+=("--dry-run")
-        elif [ "$INPUT_DRY_RUN" != "false" ]; then
+        elif [ "$DRY_RUN_VALUE" != "false" ]; then
           echo "dry-run must be true or false" >&2
           exit 1
         fi

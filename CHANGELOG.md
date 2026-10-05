@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.2] - Unreleased
+
+### Fixed
+- Hardened SARIF, Markdown, terminal, and machine-readable output handling.
+- Prevented false package-setup errors, stale Docker wait results, hard-link overwrites, and unbounded log copies.
+- Added BOM-aware discovery, Windows exclusion normalization, bounded concurrency, and runtime option validation.
+- Added a one-CPU container limit and bounded Docker log rotation, while keeping disposable container filesystems writable for installers.
+- Normalized SARIF paths, preserved actionable repeat-run diagnostics, skipped hidden auto-discovered files, and kept terminal reports visible when file output fails.
+- Fixed release workflow tag handoff so a `main` push cannot publish the same version twice.
+- Made `doctor` reject Docker's Windows-container mode before Linux image checks begin.
+- Added problem-first FAQ content, structured data, canonical URLs, and AI-readable answers for runtime compatibility searches.
+- Bounded repeat runs to 20 attempts per distribution to prevent accidental unbounded container work and result retention.
+- Bounded per-container timeouts to one hour so fallback polling cannot wait indefinitely on an extreme configuration.
+- Bounded custom matrices to 32 images so a single configuration cannot create unbounded container work.
+- Fixed `_is_ignored_path` in script discovery to avoid misclassifying paths with leading `./` as ignored.
+- Traversed exception cause chains in `_is_wait_timeout_error` to reliably identify nested Docker wait timeouts.
+- Protected container reload against network jitter to preserve valid exit codes.
+- Added early validation for CLI `--output` to reject existing directories before executing test matrices.
+- Expanded cross-distro package manager diagnostics and added remediation for path-qualified curl/wget and missing sudo.
+- Refreshed active workflow templates, examples, and documentation to `v0.9.2`.
+
 ## [0.9.1] - 2026-10-03
 
 ### Fixed

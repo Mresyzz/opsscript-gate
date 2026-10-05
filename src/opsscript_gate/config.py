@@ -5,6 +5,9 @@ import json
 import re
 from pathlib import Path
 
+from docker.errors import DockerException
+from docker.utils import parse_bytes
+
 CONFIG_NAME = ".opsscript-gate.json"
 PRESETS = {
     "minimal": ["debian:12-slim", "alpine:3.20"],
@@ -18,8 +21,25 @@ DEFAULTS = {
 }
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
+MAX_REPEAT_ATTEMPTS = 20
+MAX_TIMEOUT_SECONDS = 3600
+MAX_MATRIX_IMAGES = 32
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
+
+
+def validate_memory_limit(value: object) -> str:
+    """Reject invalid or unlimited Docker memory settings before execution."""
+    message = "mem_limit must be a positive Docker memory limit (for example, 256m)"
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(message)
+    normalized = value.strip()
+    try:
+        if parse_bytes(normalized) <= 0:
+            raise ValueError(message)
+    except (DockerException, OverflowError, ValueError) as exc:
+        raise ValueError(message) from exc
+    return normalized
 
 
 def validate_packages(value: object) -> list[str]:
@@ -42,11 +62,15 @@ def load_config(filename: str | None) -> dict:
     if filename is None and not path.exists():
         return {}
     try:
-        if path.stat().st_size > MAX_CONFIG_SIZE_BYTES:
+        # Read one byte beyond the limit so a concurrent file replacement or growth
+        # cannot bypass the stat-based size check and force an unbounded allocation.
+        with path.open("rb") as stream:
+            raw_config = stream.read(MAX_CONFIG_SIZE_BYTES + 1)
+        if len(raw_config) > MAX_CONFIG_SIZE_BYTES:
             raise ValueError(
                 f"configuration exceeds {MAX_CONFIG_SIZE_BYTES // 1024} KiB limit"
             )
-        config = json.loads(path.read_text(encoding="utf-8-sig"))
+        config = json.loads(raw_config.decode("utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"Cannot load {path}: {exc}") from exc
     if not isinstance(config, dict):
@@ -58,11 +82,17 @@ def load_config(filename: str | None) -> dict:
         if key in {"jobs", "timeout", "pids_limit", "max_scripts", "repeat"}:
             if type(value) is not int or value < 1:
                 raise ValueError(f"{key} must be a positive integer")
+            if key == "repeat" and value > MAX_REPEAT_ATTEMPTS:
+                raise ValueError(f"repeat must not exceed {MAX_REPEAT_ATTEMPTS}")
+            if key == "timeout" and value > MAX_TIMEOUT_SECONDS:
+                raise ValueError(f"timeout must not exceed {MAX_TIMEOUT_SECONDS} seconds")
         elif key == "exclude":
             if not isinstance(value, list) or not all(isinstance(p, str) and p for p in value):
                 raise ValueError("exclude must be a list of nonempty glob strings")
         elif key == "packages":
             validate_packages(value)
+        elif key == "mem_limit":
+            validate_memory_limit(value)
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -71,6 +101,12 @@ def load_config(filename: str | None) -> dict:
             raise ValueError(f"Invalid {key}: {config[key]}")
     if "matrix" in config and "preset" in config:
         raise ValueError("Configure either matrix or preset, not both")
+    if "matrix" in config:
+        images = [image.strip() for image in config["matrix"].split(",") if image.strip()]
+        if not images:
+            raise ValueError("matrix must contain at least one image")
+        if len(images) > MAX_MATRIX_IMAGES:
+            raise ValueError(f"matrix must not contain more than {MAX_MATRIX_IMAGES} images")
     return config
 
 
@@ -90,7 +126,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.1
+      - uses: Mresyzz/opsscript-gate@v0.9.2
         with:
           config: .opsscript-gate.json
 """,

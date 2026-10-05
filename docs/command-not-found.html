@@ -5,6 +5,61 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Test shell scripts in Debian, Ubuntu and Alpine: command not found | OpsScript Gate</title>
   <meta name="description" content="Test a shell installer in real Debian, Ubuntu and Alpine containers. Diagnose command not found, exit code 127 and missing Bash with OpsScript Gate, a GitHub Action and CLI.">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "OpsScript Gate",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "description": "Run shell scripts in real Debian, Ubuntu, and Alpine containers to diagnose command not found and cross-distro runtime failures.",
+    "url": "https://mresyzz.github.io/opsscript-gate/command-not-found.html",
+    "codeRepository": "https://github.com/Mresyzz/opsscript-gate",
+    "downloadUrl": "https://pypi.org/project/opsscript-gate/",
+    "isAccessibleForFree": true,
+    "license": "https://opensource.org/licenses/MIT"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "How do I test a shell script on Debian, Ubuntu, and Alpine?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Add the OpsScript Gate GitHub Action or install the Python CLI, then run the script in real Debian, Ubuntu, and Alpine containers. The report shows the failing image, exit code, line, and missing command."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why can ShellCheck pass while a shell installer still fails with command not found?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "ShellCheck analyzes shell source and syntax. It does not know which binaries are installed in the runtime image. OpsScript Gate executes the script so missing commands and package-manager assumptions appear in the target distribution."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I diagnose apt-get not found on Alpine?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Alpine normally uses apk rather than apt-get. Run the installer across the matrix and branch on the package manager or document a distribution-specific prerequisite."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I run the cross-distro shell check without GitHub Actions?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Install opsscript-gate from PyPI, ensure a Docker engine running Linux containers is reachable, and run opsscript-gate run ./install.sh."
+        }
+      }
+    ]
+  }
+  </script>
   <link rel="canonical" href="https://mresyzz.github.io/opsscript-gate/command-not-found.html">
   <meta property="og:title" content="ShellCheck passed. Does your installer run on Alpine?">
   <meta property="og:description" content="A reproducible shell runtime compatibility check for Debian, Ubuntu and Alpine, with a copyable GitHub Actions workflow.">
@@ -79,7 +134,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.0
+      - uses: Mresyzz/opsscript-gate@v0.9.2
         with:
           script-path: install.sh
           shell: auto
@@ -113,6 +168,20 @@ opsscript-gate run ./install.sh</code></pre>
   <p>OpsScript Gate mounts each script independently. Sibling files and repository dependencies are not mounted.
     These are distribution user-space tests in containers, not separate Linux kernels or full-machine tests.
     Passing checks do not prove security or replace project integration tests.</p>
+
+  <h2 id="faq">Frequently asked questions</h2>
+  <h3>How do I test a shell script on Debian, Ubuntu, and Alpine?</h3>
+  <p>Add the GitHub Action or install the CLI, then run the script in real containers for each distribution.
+    The report identifies the failing image, exit code, line, and missing command.</p>
+  <h3>Why can ShellCheck pass while the installer still fails?</h3>
+  <p>ShellCheck analyzes source and syntax. It cannot know which binaries are installed in the image that
+    executes the script. Runtime execution exposes missing commands and package-manager assumptions.</p>
+  <h3>How do I diagnose <code>apt-get: not found</code> on Alpine?</h3>
+  <p>Alpine normally uses <code>apk</code>. Detect the available package manager or document a distribution-specific
+    prerequisite instead of assuming Debian's APT exists everywhere.</p>
+  <h3>Can I run the check without GitHub Actions?</h3>
+  <p>Yes. Install <code>opsscript-gate</code> from PyPI, make sure a Docker engine running Linux containers is
+    reachable, and run <code>opsscript-gate run ./install.sh</code>.</p>
   <footer>Read the <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/configuration.md">configuration guide</a>,
     <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/troubleshooting.md">troubleshooting</a>,
     or <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/SECURITY.md">security boundaries</a>.

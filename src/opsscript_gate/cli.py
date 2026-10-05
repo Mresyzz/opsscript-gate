@@ -9,7 +9,7 @@ from pathlib import Path
 
 from opsscript_gate import __version__
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
-from opsscript_gate.config import DEFAULTS, PRESETS, init_project, load_config, validate_packages
+from opsscript_gate.config import DEFAULTS, MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
     emit_github_annotations,
@@ -152,6 +152,8 @@ def parse_matrix_argument(matrix_raw: str | None) -> list[str]:
     if not matrix_raw:
         return DEFAULT_MATRIX
     images = [img.strip() for img in matrix_raw.split(",") if img.strip()]
+    if len(images) > MAX_MATRIX_IMAGES:
+        raise ValueError(f"matrix must not contain more than {MAX_MATRIX_IMAGES} images")
     return images if images else DEFAULT_MATRIX
 
 
@@ -190,6 +192,21 @@ def run_checked_matrix(
     except Exception as err:
         sys.stderr.write(f"Unexpected Error: {err}\n")
     return None
+
+
+def _output_overwrites_protected(output_path: Path, protected: list[Path]) -> bool:
+    """Reject paths that resolve to or share an inode with a protected file."""
+    if output_path in protected:
+        return True
+    if not output_path.exists():
+        return False
+    for target in protected:
+        try:
+            if target.exists() and os.path.samefile(output_path, target):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -278,8 +295,13 @@ def main(argv: list[str] | None = None) -> int:
                 value = getattr(args, key)
                 if value is not None and value < 1:
                     raise ValueError(f"{key.replace('_', '-')} must be positive")
+            if args.repeat > MAX_REPEAT_ATTEMPTS:
+                raise ValueError(f"repeat must not exceed {MAX_REPEAT_ATTEMPTS}")
+            if args.timeout > MAX_TIMEOUT_SECONDS:
+                raise ValueError(f"timeout must not exceed {MAX_TIMEOUT_SECONDS} seconds")
             if args.network not in ("bridge", "none"):
                 raise ValueError("network must be bridge or none")
+            args.mem_limit = validate_memory_limit(args.mem_limit)
             args.packages = parse_packages_argument(args.packages)
             if args.packages and args.network == "none":
                 raise ValueError("packages require network=bridge")
@@ -319,18 +341,25 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
 
-        matrix = PRESETS[args.preset] if args.preset else parse_matrix_argument(args.matrix)
+        try:
+            matrix = PRESETS[args.preset] if args.preset else parse_matrix_argument(args.matrix)
+        except ValueError as err:
+            sys.stderr.write(f"Error: {err}\n")
+            return 1
         if args.output:
             output_path = Path(args.output).resolve()
+            if output_path.is_dir():
+                sys.stderr.write("Error: output must name a file, not an existing directory\n")
+                return 1
             protected = [Path(p).resolve() for p in target_scripts]
             protected.append(Path(args.config or ".opsscript-gate.json").resolve())
-            if output_path in protected:
+            if _output_overwrites_protected(output_path, protected):
                 sys.stderr.write("Error: output must not overwrite a target script or configuration\n")
                 return 1
 
         if args.dry_run:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
-                    "executions": len(target_scripts) * len(matrix), "shell": args.shell,
+                    "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
                     "repeat": args.repeat}
             if changed_selection:
@@ -345,9 +374,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if publish_output(output, args.output) else 1
 
         if not target_scripts:
-            output = (
-                f"No changed shell scripts since {args.changed_since}; skipping compatibility checks."
-            )
+            message = f"No changed shell scripts since {args.changed_since}; skipping compatibility checks."
+            if args.format == "json":
+                output = json.dumps({
+                    "all_passed": True,
+                    "changed_since": args.changed_since,
+                    "scripts": [],
+                    "skipped": True,
+                }, indent=2)
+            elif args.format == "sarif":
+                output = format_sarif(RunReport([]))
+            elif args.format == "markdown":
+                output = format_github_summary(RunReport([]))
+            else:
+                output = message
             return 0 if publish_output(output, args.output) else 1
 
         if len(target_scripts) == 1:
@@ -370,7 +410,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             # Emit GitHub line annotations if in CI
-            emit_github_annotations(report, script_path=script_path)
+            if args.format not in ("json", "sarif"):
+                emit_github_annotations(report, script_path=script_path)
 
             # Automatic GitHub Actions Step Summary injection
             write_github_step_summary(report, script_path=script_path)
@@ -387,7 +428,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             multi_reports[script_path] = report
-            emit_github_annotations(report, script_path=script_path)
+            if args.format not in ("json", "sarif"):
+                emit_github_annotations(report, script_path=script_path)
 
         total_duration = time.perf_counter() - multi_start
         all_passed = all(r.all_passed for r in multi_reports.values())
@@ -417,6 +459,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def publish_output(output: str, filename: str | None) -> bool:
+    # Always keep the terminal result visible even when persistence fails.
+    print(output)
     if filename:
         try:
             path = Path(filename)
@@ -425,7 +469,6 @@ def publish_output(output: str, filename: str | None) -> bool:
         except OSError as err:
             sys.stderr.write(f"Error writing report: {err}\n")
             return False
-    print(output)
     return True
 
 

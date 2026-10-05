@@ -80,11 +80,19 @@ def test_init_existing_workflow_leaves_config_absent(project):
 @pytest.mark.parametrize("config", [[], {"typo": 1}, {"timeout": True},
     {"jobs": 0}, {"exclude": "tests/*"}, {"shell": "fish"}, {"network": "host"},
     {"preset": "unknown"}, {"matrix": "alpine", "preset": "minimal"},
+    {"matrix": ","}, {"mem_limit": "0"}, {"mem_limit": "unlimited"}, {"repeat": 21}, {"timeout": 3601},
     {"packages": "curl"}, {"packages": ["curl; touch pwned"]}])
 def test_invalid_config(project, config):
     Path(CONFIG_NAME).write_text(json.dumps(config))
     with patch("opsscript_gate.cli.run_matrix") as run:
         assert main(["run", "--dry-run"]) == 1
+        run.assert_not_called()
+
+
+def test_matrix_count_limit(project):
+    matrix = ",".join(f"image:{index}" for index in range(33))
+    with patch("opsscript_gate.cli.run_matrix") as run:
+        assert main(["run", "--dry-run", "--matrix", matrix]) == 1
         run.assert_not_called()
 
 
@@ -138,6 +146,7 @@ def test_discovery_limit_and_exclusions(project):
         discover_scripts(max_scripts=1)
     assert discover_scripts(max_scripts=1, exclude=["tests/*"]) == ["./install.sh"]
     assert discover_scripts(max_scripts=1, exclude=["./install.sh", "tests/*"]) == []
+    assert discover_scripts(max_scripts=1, exclude=[r"tests\fail.sh"]) == ["./install.sh"]
     with patch("opsscript_gate.cli.run_matrix") as run:
         assert main(["run", "--max-scripts", "1"]) == 1
         run.assert_not_called()
@@ -176,6 +185,69 @@ def test_changed_discovery_matches_dot_slash_exclusions(tmp_path):
         assert discover_changed_scripts(str(tmp_path), exclude=["./install.sh"]) == []
 
 
+def test_changed_discovery_matches_normal_discovery_ignored_paths(tmp_path):
+    (tmp_path / "visible.sh").write_text("#!/bin/sh\necho ok\n")
+    (tmp_path / ".env.sh").write_text("#!/bin/sh\necho hidden\n")
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github/hook.sh").write_text("#!/bin/sh\necho workflow\n")
+    completed = type(
+        "Completed",
+        (),
+        {"stdout": b"visible.sh\0.env.sh\0.github/hook.sh\0", "stderr": b""},
+    )()
+    with patch("opsscript_gate.discovery.subprocess.run", return_value=completed):
+        assert discover_changed_scripts(str(tmp_path), since="origin/main") == ["./visible.sh"]
+
+
+def test_discovery_recognizes_bom_shebang_without_extension(tmp_path):
+    script = tmp_path / "bin-script"
+    script.write_bytes(b"\xef\xbb\xbf#!/bin/sh\necho ok\n")
+    assert discover_scripts(str(tmp_path)) == ["./bin-script"]
+
+
+def test_discovery_skips_hidden_shell_files(tmp_path):
+    (tmp_path / ".env.sh").write_text("#!/bin/sh\necho hidden\n")
+    (tmp_path / "visible.sh").write_text("#!/bin/sh\necho visible\n")
+    assert discover_scripts(str(tmp_path)) == ["./visible.sh"]
+
+
+def test_dry_run_repeat_count_is_included(project, capsys):
+    assert main(["run", "install.sh", "--dry-run", "--format", "json", "--repeat", "3"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["executions"] == 12
+
+
+def test_empty_changed_json_is_machine_readable(project, capsys):
+    with patch("opsscript_gate.cli.discover_changed_scripts", return_value=[]):
+        assert main(["run", "--changed-since", "HEAD^", "--format", "json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["skipped"] is True
+    assert report["scripts"] == []
+
+
+def test_hardlink_output_cannot_overwrite_target(project, tmp_path, capsys):
+    alias = tmp_path / "install-alias.txt"
+    try:
+        alias.hardlink_to(project / "install.sh")
+    except (OSError, NotImplementedError):
+        pytest.skip("Host does not support hard links")
+    original = (project / "install.sh").read_bytes()
+    assert main(["run", "install.sh", "--dry-run", "--output", str(alias)]) == 1
+    capsys.readouterr()
+    assert (project / "install.sh").read_bytes() == original
+
+
+def test_multi_script_json_does_not_include_github_annotations(project, capsys, monkeypatch):
+    report = RunReport([SingleResult("alpine:3.20", DistroStatus.FAIL, 1, 0.1, error_message="failed")])
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with patch("opsscript_gate.cli.discover_scripts", return_value=["install.sh", "tests/fail.sh"]), \
+         patch("opsscript_gate.cli.run_checked_matrix", return_value=report):
+        assert main(["run", "--format", "json"]) == 1
+    output = capsys.readouterr().out
+    assert output.lstrip().startswith("{")
+    assert "::error" not in output
+
+
 @pytest.mark.parametrize("revision", ["", "--output=bad", "origin/main bad"])
 def test_changed_discovery_rejects_invalid_revision(tmp_path, revision):
     with pytest.raises(ValueError, match="changed-since"):
@@ -199,7 +271,7 @@ def test_changed_discovery_preview_includes_revision(project, monkeypatch, capsy
     assert plan["scripts"] == ["./install.sh"]
 
 
-@pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"],
+@pytest.mark.parametrize("flags", [["--jobs", "0"], ["--timeout", "-1"], ["--timeout", "3601"], ["--repeat", "21"],
     ["--pids-limit", "0"], ["--repeat", "0"], ["--network", "host"], ["--matrix", ","],
     ["--matrix", "alpine", "--preset", "minimal"], ["--config", "missing.json"]])
 def test_invalid_cli_before_execution(project, flags):

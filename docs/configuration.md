@@ -12,7 +12,7 @@ opsscript-gate run --dry-run
 ```
 
 `init` refuses to overwrite either `.opsscript-gate.json` or
-`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.9.0 tag.
+`.github/workflows/opsscript-gate.yml`. The generated workflow uses the v0.9.2 tag.
 
 `doctor` checks Python and Docker connectivity without executing repository scripts.
 Use `opsscript-gate doctor --format json` when collecting a support report.
@@ -53,7 +53,7 @@ names to install inside each test container before the target script runs. The
 runner uses `apt-get` for Debian/Ubuntu images and `apk` for Alpine images. It
 accepts package names only, never shell commands, and requires `network: bridge`.
 The default is an empty list, so existing networking settings and execution remain unchanged.
-`repeat` runs each distribution more than once and reports `FLAKY` when at least one
+`repeat` runs each distribution more than once (up to 20 attempts) and reports `FLAKY` when at least one
 attempt passes and another fails. Keep it at `1` for the normal fast gate; use `3` or
 `5` while investigating intermittent CI failures.
 
@@ -109,7 +109,7 @@ For pull requests, set `changed-since` to the base commit and fetch full Git his
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.9.0
+- uses: Mresyzz/opsscript-gate@v0.9.2
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
@@ -119,7 +119,7 @@ The Action passes when no changed shell scripts are selected. This keeps unrelat
 documentation or application changes from starting container jobs.
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.9.0
+- uses: Mresyzz/opsscript-gate@v0.9.2
   with:
     config: .opsscript-gate.json
     format: json
@@ -146,3 +146,6 @@ offline networking and a smaller matrix. Existing users do not need to run `init
 
 The intentional breaking corrections are that discovery overflow now fails and
 symlinked files are no longer automatically selected. Preview discovery after upgrading.
+
+`timeout` is the hard limit per container in seconds. It must be between 1 and 3600.
+Custom `matrix` values may contain up to 32 container images.
