@@ -296,7 +296,7 @@
 
       <div class="pt-2 flex flex-wrap items-center gap-3 text-xs font-mono">
         <button onclick="copyCanonicalWorkflow(this)" class="px-4 py-2 rounded font-medium bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)] shadow-sm transition-all">
-          Copy 5-Line Action
+          Copy Workflow
         </button>
         <a href="./command-not-found.html" class="px-4 py-2 rounded font-medium bg-[var(--surface-elevated)] text-[var(--text-body)] border border-[var(--border-medium)] hover:border-[var(--brand)] hover:text-[var(--brand)] shadow-sm transition-all inline-flex items-center gap-1.5">
           Debug command not found
@@ -316,13 +316,13 @@
       <div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 border-b border-[var(--border-light)] pb-3">
         <div class="space-y-1">
           <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-[var(--surface-muted)] text-[var(--text-muted)] border border-[var(--border-light)]">
-            Section 01 &bull; Runtime Simulator
+            Section 01 &bull; Example walkthrough
           </div>
           <h2 class="font-serif text-xl text-[var(--text-hero)] font-medium">
-            Live Discrepancy Verification
+            Explore compatibility examples
           </h2>
           <p class="text-xs text-[var(--text-muted)]">
-            Contrast clean syntactic passes with isolated container failures in real time.
+            Illustrative results only. This page does not run ShellCheck or execute scripts. Use the Action to verify your script in real containers.
           </p>
         </div>
       </div>
@@ -359,7 +359,7 @@
         <!-- whitespace-pre prevents ugly breaking of code indentation -->
         <textarea id="script-input" oninput="evaluateInput()" class="w-full bg-[var(--code-bg)] text-[var(--code-text)] font-mono text-xs p-4 border-0 leading-[1.7] resize-y min-h-[200px] h-[200px] block focus:ring-0 whitespace-pre overflow-x-auto"></textarea>
         <div class="bg-[var(--surface-muted)] px-4 py-1.5 border-t border-[var(--border-light)] flex items-center justify-between text-[11px] font-mono text-[var(--text-subtle)]">
-          <span>Editable interactive buffer &bull; changes simulate dynamically</span>
+          <span>Local editor &bull; edited scripts remain unverified</span>
           <span id="script-line-count">8 lines</span>
         </div>
       </div>
@@ -371,7 +371,7 @@
         <div class="panel-card p-4 flex flex-col justify-between space-y-3">
           <div class="space-y-2.5">
             <div class="flex items-center justify-between border-b border-[var(--border-light)] pb-2">
-              <span class="font-mono text-xs font-medium text-[var(--text-muted)]">Static Linter (ShellCheck 0.10.0)</span>
+              <span class="font-mono text-xs font-medium text-[var(--text-muted)]">ShellCheck example output</span>
               <span id="sc-status" class="font-mono text-xs font-semibold px-2 py-0.5 rounded border">
                 0 WARNINGS
               </span>
@@ -391,7 +391,7 @@
         <div class="panel-card p-4 flex flex-col justify-between space-y-3">
           <div class="space-y-2.5">
             <div class="flex items-center justify-between border-b border-[var(--border-light)] pb-2">
-              <span class="font-mono text-xs font-medium text-[var(--text-muted)]">OpsScript Gate Runtime (v0.9.4)</span>
+              <span class="font-mono text-xs font-medium text-[var(--text-muted)]">OpsScript Gate example output</span>
               <span id="ops-status" class="font-mono text-xs font-semibold px-2 py-0.5 rounded border">
                 1 DISTRO FAILED
               </span>
@@ -532,11 +532,17 @@
         </p>
       </div>
 
+      <p class="text-xs text-[var(--text-muted)]">
+        Testing a downloading installer? A zero exit code alone does not prove installation succeeded.
+        <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/installer-smoke-test.md" class="text-[var(--brand)] underline">Use the installation smoke test guide</a>
+        to check the installed binary inside each container.
+      </p>
+
       <div class="panel-card overflow-hidden">
         <div class="bg-[var(--surface-muted)] px-4 py-2.5 border-b border-[var(--border-light)] flex items-center justify-between text-xs font-mono">
           <div class="flex items-center gap-2 text-[var(--text-muted)]">
             <span class="font-medium text-[var(--text-hero)]">.github/workflows/gate.yml</span>
-            <span class="text-[var(--text-subtle)] text-[11px] hidden sm:inline">&bull; 15 lines</span>
+            <span class="text-[var(--text-subtle)] text-[11px] hidden sm:inline">&bull; GitHub Actions</span>
           </div>
           <div class="flex items-center gap-2">
             <button onclick="toggleWorkflowExpansion()" id="expand-btn" class="text-xs text-[var(--text-muted)] hover:text-[var(--text-hero)] px-2 py-0.5 rounded hover:bg-[var(--surface-subtle)] transition-colors">
@@ -558,16 +564,18 @@
   <span class="font-semibold text-[var(--text-hero)]">compatibility:</span>
     <span class="font-semibold text-[var(--text-hero)]">runs-on:</span> ubuntu-latest
     <span class="font-semibold text-[var(--text-hero)]">steps:</span>
-      - <span class="font-semibold text-[var(--text-hero)]">uses:</span> actions/checkout@v4
+      - <span class="font-semibold text-[var(--text-hero)]">uses:</span> actions/checkout@v7
+        <span class="font-semibold text-[var(--text-hero)]">with:</span>
+          <span class="text-[var(--text-body)]">persist-credentials:</span> false
       - <span class="font-semibold text-[var(--text-hero)]">name:</span> Validate scripts across distributions
         <span class="font-semibold text-[var(--brand)]">uses:</span> Mresyzz/opsscript-gate@v0.9.4
         <span class="font-semibold text-[var(--text-hero)]">with:</span>
           <span class="text-[var(--text-body)]">script-path:</span> ./install.sh
           <span class="text-[var(--text-body)]">shell:</span> auto
-          <span class="text-[var(--text-body)]">timeout-seconds:</span> 120</code></pre>
+          <span class="text-[var(--text-body)]">timeout:</span> 120</code></pre>
           <div class="code-gradient-mask" id="workflow-mask" onclick="toggleWorkflowExpansion()">
             <button type="button" class="px-3.5 py-1.5 rounded-full bg-[var(--surface-elevated)] border border-[var(--border-medium)] text-[11px] font-mono text-[var(--text-body)] hover:text-[var(--brand)] hover:border-[var(--brand)] shadow-sm flex items-center gap-1.5 cursor-pointer transition-all">
-              <span>Show full configuration (15 lines)</span>
+              <span>Show full configuration</span>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
           </div>
@@ -579,7 +587,7 @@
     <section class="mt-16 sm:mt-20 pt-4">
       <div class="cta-invitation-card p-8 sm:p-11 text-center space-y-4">
         <div class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded text-[11px] font-mono font-medium bg-[var(--brand-surface)] text-[var(--brand)] border border-[var(--brand-border)] mx-auto">
-          Production Ready &bull; Zero Overhead
+          Runs in your GitHub Actions runner
         </div>
         <h3 class="font-serif text-2xl sm:text-3xl text-[var(--text-hero)] font-normal tracking-tight">
           Ready to secure your scripts across Linux distributions?
@@ -593,7 +601,7 @@
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
-            <span>Copy 5-Line Action</span>
+            <span>Copy Workflow</span>
           </button>
           <a href="https://github.com/Mresyzz/opsscript-gate" target="_blank" class="px-4 py-2.5 rounded font-medium bg-[var(--surface-elevated)] text-[var(--text-body)] border border-[var(--border-medium)] hover:border-[var(--brand)] hover:text-[var(--brand)] shadow-sm transition-all inline-flex items-center gap-1.5">
             <span>View on GitHub</span>
@@ -626,13 +634,15 @@ jobs:
   compatibility:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Validate scripts across distributions
         uses: Mresyzz/opsscript-gate@v0.9.4
         with:
           script-path: ./install.sh
           shell: auto
-          timeout-seconds: 120`;
+          timeout: 120`;
 
     function updateThemeButtonText() {
       const isDark = document.documentElement.classList.contains("dark");
@@ -646,7 +656,7 @@ jobs:
       const isDark = document.documentElement.classList.toggle("dark");
       localStorage.setItem("theme", isDark ? "dark" : "light");
       updateThemeButtonText();
-      selectCase(activeKey);
+      // Theme changes must preserve the edited script and its unverified state.
     }
 
     function toggleWorkflowExpansion() {
@@ -723,6 +733,7 @@ jobs:
     }
 
     function selectCase(key) {
+      clearTimeout(debounceTimer);
       activeKey = key;
       const c = CASES[key];
       const scriptInput = document.getElementById('script-input');
@@ -760,7 +771,7 @@ jobs:
 
     function renderCase(c) {
       const scStatus = document.getElementById('sc-status');
-      scStatus.innerText = c.scStatus;
+      scStatus.innerText = "EXAMPLE: " + c.scStatus;
       scStatus.className = "font-mono text-xs font-semibold px-2 py-0.5 rounded border " + c.scClass;
       
       const scOutput = document.getElementById('sc-output');
@@ -768,7 +779,7 @@ jobs:
       scOutput.className = "bg-[var(--code-bg)] border border-[var(--border-light)] rounded p-3 text-xs font-mono h-[160px] overflow-y-auto whitespace-pre-wrap leading-[1.65] text-[var(--code-text)] break-words fade-switch";
 
       const opsStatus = document.getElementById('ops-status');
-      opsStatus.innerText = c.opsStatus;
+      opsStatus.innerText = "EXAMPLE: " + c.opsStatus;
       opsStatus.className = "font-mono text-xs font-semibold px-2 py-0.5 rounded border " + c.opsClass;
 
       const opsOutput = document.getElementById('ops-output');
@@ -799,150 +810,22 @@ jobs:
       }, 160);
     }
 
-    async function runRealEngineAnalysis(val) {
-      try {
-        const resp = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ script: val })
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          renderRealApiResponse(data);
-          return;
-        }
-      } catch (err) {
-        // Fallback for static hosting on GitHub Pages
+    function runRealEngineAnalysis(val) {
+      if (val === CASES[activeKey].code) {
+        renderCase(CASES[activeKey]);
+        return;
       }
-      clientSideAnalyzeFallback(val);
-    }
-
-    function clientSideAnalyzeFallback(val) {
-      let isAlpineFail = false;
-      let alpineReason = "";
-      const hasBashism = val.includes('[[') || (val.includes('${') && val.includes(':'));
-      const hasRead = val.includes('read');
-      const hasSetE = val.includes('set -e') || val.includes('set -o errexit');
-      const isBashShebang = val.startsWith('#!/bin/bash') || val.startsWith('#!/usr/bin/env bash');
-      const isPosixShebang = val.startsWith('#!/bin/sh');
-
-      // 1. Critical Deadlock & Abort Check: read under set -e
-      const isSetEReadAbort = hasRead && hasSetE;
-
-      // 2. Critical Dependency Check: Missing binaries in minimal containers
-      // Minimal base images (debian-slim, ubuntu, alpine) strictly omit curl, jq, git, sudo, python, etc.
-      const uninstalledBins = ["curl", "jq", "git", "sudo", "python", "python3", "docker"];
-      let missingBin = null;
-      let missingBinLine = 1;
-
-      const lines = val.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.startsWith('#') || !line) continue;
-        for (const bin of uninstalledBins) {
-          // Check if command is called directly or in a pipe
-          const regex = new RegExp('(?:^|[|;&]\\s*)' + bin + '(?:\\s+|$)', 'i');
-          if (regex.test(line)) {
-            // Check if installed beforehand in script
-            const hasInstall = val.includes('apt-get install') && val.includes(bin) || val.includes('apk add') && val.includes(bin);
-            if (!hasInstall) {
-              missingBin = bin;
-              missingBinLine = i + 1;
-              break;
-            }
-          }
-        }
-        if (missingBin) break;
-      }
-
-      if (val.includes('apt-get') && !val.includes('apk')) {
-        isAlpineFail = true;
-        alpineReason = "apt-get: not found (line 4)";
-      } else if (isBashShebang) {
-        isAlpineFail = true;
-        alpineReason = "/bin/bash: not found (line 1)";
-      } else if (isPosixShebang && hasBashism) {
-        isAlpineFail = true;
-        alpineReason = "syntax error: unexpected [[ or expansion";
-      }
-
-      const scWarnings = [];
-      if (hasRead && !val.includes('-r')) scWarnings.push("SC2162 (info): read without -r will mangle backslashes.");
-      if (isPosixShebang && hasBashism) scWarnings.push("SC3010 (warning): In POSIX sh, [[ ]] is undefined.");
-      if (val.includes('api_key') && !val.includes('$api_key')) scWarnings.push("SC2034 (warning): api_key appears unused. Verify use (or export if used externally).");
-
-      const scText = scWarnings.length > 0 
-        ? "$ shellcheck script.sh\n" + scWarnings.join('\n') 
-        : "$ shellcheck script.sh\nNo issues detected. Syntax conforms to grammar.\n(Blind spot: linters verify syntax tokens, cannot check if binaries exist)";
-
-      let logs = [];
-      let overallStatus = "ALL DISTROS PASSED";
-      let statusClass = "bg-[var(--status-pass-bg)] text-[var(--status-pass-text)] border-[var(--status-pass-border)]";
-      let showDiag = false;
-      let diagCode = "Exit Code 0";
-      let diagMsg = "";
-
-      if (missingBin) {
-        // Missing command caught by container execution!
-        overallStatus = `MISSING BINARY: ${missingBin} (ALL FAILED)`;
-        statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
-        showDiag = true;
-        diagCode = "Exit Code 127";
-        diagMsg = `Standard minimal container images (debian-slim, ubuntu, alpine) do not include '${missingBin}' by default. ShellCheck verified the syntax AST, but OpsScript Gate detected that '${missingBin}' is missing at line ${missingBinLine}.`;
-
-        const distros = [
-          { d: "debian:12-slim", t: "0.15s" },
-          { d: "ubuntu:22.04", t: "0.16s" },
-          { d: "ubuntu:24.04", t: "0.16s" },
-          { d: "alpine:3.20", t: "0.11s" }
-        ];
-        distros.forEach(item => {
-          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[' + item.d + '] FAIL (' + item.t + ') - Exit 127</span><br><span class="opacity-95 font-mono text-[11px]">  /tmp/target_script.sh: line ' + missingBinLine + ': ' + missingBin + ': not found</span></div>');
-        });
-      } else if (isSetEReadAbort) {
-        // True Unix behavior: read returns 1 on EOF (from </dev/null), set -e aborts script instantly!
-        overallStatus = "STDIN DEADLOCK INTERCEPTED (ALL FAILED)";
-        statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
-        showDiag = true;
-        diagCode = "Exit Code 1 (set -e)";
-        diagMsg = "Script called 'read' under unattended runner. OpsScript Gate bound stdin to </dev/null; read returned EOF (exit 1), causing 'set -e' to terminate execution immediately before reaching subsequent steps.";
-
-        const distros = ["debian:12-slim", "ubuntu:22.04", "ubuntu:24.04", "alpine:3.20"];
-        distros.forEach(d => {
-          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[' + d + '] FAIL (0.12s) - Exit 1</span><br><span class="opacity-95 font-mono text-[11px]">  read: end of file reached via </dev/null (aborted by set -e)</span></div>');
-        });
-      } else {
-        logs = [
-          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[debian:12-slim] PASS (0.22s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
-          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:22.04]   PASS (0.24s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>',
-          '<div class="text-[var(--status-pass-text)] font-mono text-xs">[ubuntu:24.04]   PASS (0.26s)' + (hasRead ? ' - stdin bound to </dev/null' : '') + '</div>'
-        ];
-
-        if (isAlpineFail) {
-          overallStatus = "MATRIX DISCREPANCY DETECTED";
-          statusClass = "bg-[var(--status-fail-bg)] text-[var(--status-fail-text)] border-[var(--status-fail-border)]";
-          showDiag = true;
-          diagCode = "Exit Code 127";
-          diagMsg = "Discrepancy detected on Alpine minimal container: " + alpineReason;
-          logs.push('<div class="my-1.5 px-2.5 py-1.5 rounded bg-[var(--status-fail-bg)] border-l-2 border-[var(--status-fail-text)] text-[var(--status-fail-text)]"><span class="font-semibold">[alpine:3.20]    FAIL (0.11s) - Exit 127</span><br><span class="opacity-95 font-mono text-[11px]">  /tmp/target_script.sh: ' + alpineReason + '</span></div>');
-        } else {
-          logs.push('<div class="text-[var(--status-pass-text)] font-mono text-xs">[alpine:3.20]    PASS (0.18s)</div>');
-        }
-      }
-
       renderRealApiResponse({
         shellcheck: {
-          status_text: scWarnings.length > 0 ? (scWarnings.length + " WARNINGS") : "0 WARNINGS",
-          warning_count: scWarnings.length,
-          output: scText
+          status_text: "NOT RUN",
+          warning_count: 0,
+          output: "This page does not run ShellCheck. Run shellcheck on your script locally or in CI."
         },
         opsscript: {
-          overall_status: overallStatus,
-          status_class: statusClass,
-          terminal_html: logs.join('\n'),
-          show_diagnostic: showDiag,
-          diagnostic_code: diagCode,
-          diagnostic_msg: diagMsg
+          overall_status: "UNKNOWN — NOT EXECUTED",
+          status_class: "bg-[var(--surface-muted)] text-[var(--text-muted)] border-[var(--border-medium)]",
+          terminal_html: "No container execution has taken place. Copy the workflow below to test your script across distributions.",
+          show_diagnostic: false
         }
       });
     }
@@ -951,10 +834,12 @@ jobs:
       const sc = data.shellcheck;
       const ops = data.opsscript;
 
-      // Real ShellCheck output
+      // Render the analysis state
       const scStatus = document.getElementById('sc-status');
       scStatus.innerText = sc.status_text;
-      scStatus.className = sc.warning_count > 0 
+      scStatus.className = sc.status_text === "NOT RUN"
+        ? "font-mono text-xs font-semibold px-2 py-0.5 rounded border bg-[var(--surface-muted)] text-[var(--text-muted)] border-[var(--border-medium)]"
+        : sc.warning_count > 0
         ? "font-mono text-xs font-semibold px-2 py-0.5 rounded border bg-[var(--status-warn-bg)] text-[var(--status-warn-text)] border-[var(--status-warn-border)]"
         : "font-mono text-xs font-semibold px-2 py-0.5 rounded border bg-[var(--status-pass-bg)] text-[var(--status-pass-text)] border-[var(--status-pass-border)]";
 
@@ -962,7 +847,7 @@ jobs:
       scOutput.innerText = sc.output;
       scOutput.className = "bg-[var(--code-bg)] border border-[var(--border-light)] rounded p-3 text-xs font-mono h-[160px] overflow-y-auto whitespace-pre-wrap leading-[1.65] text-[var(--code-text)] break-words fade-switch";
 
-      // Real OpsScript Gate output
+      // Render the runtime state
       const opsStatus = document.getElementById('ops-status');
       opsStatus.innerText = ops.overall_status;
       opsStatus.className = "font-mono text-xs font-semibold px-2 py-0.5 rounded border " + ops.status_class;
@@ -971,7 +856,7 @@ jobs:
       opsOutput.innerHTML = ops.terminal_html;
       opsOutput.className = "bg-[var(--code-bg)] border border-[var(--border-light)] rounded p-3 text-xs font-mono h-[160px] overflow-y-auto whitespace-pre-wrap leading-[1.65] text-[var(--code-text)] break-words fade-switch";
 
-      // Real Diagnostic Panel
+      // Render diagnostic details
       const panel = document.getElementById('diagnostic-panel');
       if (ops.show_diagnostic) {
         panel.style.display = 'block';
