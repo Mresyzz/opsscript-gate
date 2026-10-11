@@ -479,3 +479,99 @@ def test_failure_diagnostic_and_sarif_suggested_package():
     props = sarif["runs"][0]["results"][0]["properties"]
     assert props.get("command") == "jq"
     assert props.get("suggestedPackage") == "jq"
+
+
+# ==============================================================================
+# 7. 缺陷深度修复专项回归测试
+# ==============================================================================
+
+def test_remediation_matchers_with_absolute_paths():
+    from opsscript_gate.remediation import generate_remediation_hint
+
+    # 验证全路径命令（如 /usr/bin/apt-get, /sbin/apk, /bin/yum, /usr/local/bin/bash）均能精准命中
+    assert generate_remediation_hint(
+        distro="alpine:3.20", command="/usr/bin/apt-get", kind="missing_command"
+    ) == "Alpine normally uses apk instead of apt-get."
+
+    assert generate_remediation_hint(
+        distro="ubuntu:22.04", command="/sbin/apk", kind="missing_command"
+    ) == "Debian/Ubuntu normally uses APT (apt-get) instead of apk."
+
+    assert generate_remediation_hint(
+        distro="debian:12-slim", command="/usr/bin/yum", kind="missing_command"
+    ) == "Debian/Ubuntu normally uses APT (apt-get) instead of yum or dnf."
+
+    assert generate_remediation_hint(
+        distro="alpine:3.20", command="/usr/bin/yum", kind="missing_command"
+    ) == "Alpine normally uses apk instead of yum or dnf."
+
+    assert generate_remediation_hint(
+        distro="fedora:40", command="/usr/bin/apt-get", kind="missing_command"
+    ) == "RHEL/Fedora family distributions normally use dnf or yum instead of apt-get or apk."
+
+    assert generate_remediation_hint(
+        distro="alpine:3.20", command="/usr/local/bin/bash", kind="missing_command"
+    ) == "Alpine minimal images do not include Bash by default; consider using POSIX sh or installing bash."
+
+
+def test_rhel_package_recommendations():
+    from opsscript_gate.remediation import resolve_package_recommendation
+
+    # RHEL 原生包名映射
+    pkg_make, cmd_make = resolve_package_recommendation("make", distro="fedora:40")
+    assert pkg_make == "make"
+    assert cmd_make == "dnf install -y make"
+
+    pkg_xz, cmd_xz = resolve_package_recommendation("xz", distro="rocky:9")
+    assert pkg_xz == "xz"
+    assert cmd_xz == "dnf install -y xz"
+
+    pkg_nc, cmd_nc = resolve_package_recommendation("nc", distro="centos:7")
+    assert pkg_nc == "nmap-ncat"
+    assert cmd_nc == "dnf install -y nmap-ncat"
+
+    pkg_cron, cmd_cron = resolve_package_recommendation("crontab", distro="rhel:9")
+    assert pkg_cron == "cronie"
+    assert cmd_cron == "dnf install -y cronie"
+
+    # 全路径命令也可以正常识别
+    pkg_curl, cmd_curl = resolve_package_recommendation("/usr/bin/curl", distro="fedora:40")
+    assert pkg_curl == "curl"
+    assert cmd_curl == "dnf install -y curl"
+
+
+def test_package_setup_rhel_package_managers():
+    from opsscript_gate.runner import _wrap_with_package_setup
+
+    wrapped = _wrap_with_package_setup(["/bin/sh", "-c", "echo 1"], ["curl", "jq"])
+    cmd_str = " ".join(wrapped)
+    # 验证生成的预装包装命令已包含 dnf、microdnf、yum 支持
+    assert "command -v dnf" in cmd_str
+    assert "command -v microdnf" in cmd_str
+    assert "command -v yum" in cmd_str
+
+
+def test_run_report_empty_explicit_all_passed():
+    from opsscript_gate.models import RunReport, MultiScriptReport
+
+    # 验证空结果集但显式指定 all_passed=False 时不被篡改为 True
+    report = RunReport(results=[], all_passed=False)
+    assert report.all_passed is False
+
+    multi = MultiScriptReport(reports={}, all_passed=False)
+    assert multi.all_passed is False
+
+    # 默认值依然保持 True
+    assert RunReport().all_passed is True
+    assert MultiScriptReport().all_passed is True
+
+
+def test_discovery_matches_exclude_directory():
+    from opsscript_gate.discovery import _matches_exclude
+
+    # 验证目录名排除规则能够正确匹配目录本身及目录下所有文件
+    assert _matches_exclude("tests/foo.sh", ["tests"]) is True
+    assert _matches_exclude("tests/sub/bar.sh", ["tests"]) is True
+    assert _matches_exclude("tests/foo.sh", ["tests/"]) is True
+    assert _matches_exclude("tests/foo.sh", ["./tests/"]) is True
+    assert _matches_exclude("other/foo.sh", ["tests"]) is False

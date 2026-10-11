@@ -113,8 +113,6 @@ class RunReport:
     def __post_init__(self) -> None:
         if self.results:
             self.all_passed = all(r.status == DistroStatus.PASS for r in self.results)
-        else:
-            self.all_passed = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,8 +132,6 @@ class MultiScriptReport:
     def __post_init__(self) -> None:
         if self.reports:
             self.all_passed = all(r.all_passed for r in self.reports.values())
-        else:
-            self.all_passed = True
 
     def to_dict(self) -> dict[str, Any]:
         return {

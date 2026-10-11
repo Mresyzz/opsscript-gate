@@ -676,7 +676,13 @@ def _wrap_with_package_setup(command: Sequence[str], packages: Sequence[str]) ->
         "(rm -rf /tmp/opsscript-apt-archives /var/lib/apt/lists/* || true) || setup_failed; "
         "elif command -v apk >/dev/null 2>&1; then "
         f"apk add --no-cache {package_args} || setup_failed; "
-        f"else echo '{PACKAGE_SETUP_ERROR_MARKER} no supported package manager found (apt-get or apk)' >&2; exit 125; fi"
+        "elif command -v dnf >/dev/null 2>&1; then "
+        f"dnf install -y --setopt=install_weak_deps=False {package_args} || setup_failed; "
+        "elif command -v microdnf >/dev/null 2>&1; then "
+        f"microdnf install -y {package_args} || setup_failed; "
+        "elif command -v yum >/dev/null 2>&1; then "
+        f"yum install -y {package_args} || setup_failed; "
+        f"else echo '{PACKAGE_SETUP_ERROR_MARKER} no supported package manager found (apt-get, apk, dnf, microdnf, yum)' >&2; exit 125; fi"
     )
     target_command = " ".join(shlex.quote(part) for part in command)
     return ["/bin/sh", "-c", f"{install} && exec {target_command}"]
