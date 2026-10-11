@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.4] - 2026-10-11
+
+### Fixed
+- Fixed release workflow publishing deadlock where `main` pushes skipped distribution package builds and release creation due to GITHUB_TOKEN tag events not triggering new workflows.
+- Unified command path extraction in remediation rules to ensure full-path commands (e.g. `/usr/bin/apt-get`, `/sbin/apk`, `/bin/yum`, `/usr/local/bin/bash`) accurately match package manager and shell hints.
+- Added native RHEL/Fedora/CentOS package mappings in `COMMON_COMMAND_PACKAGES` to prevent fallback to invalid Debian package names.
+- Added native container package pre-installation support for `dnf`, `microdnf`, and `yum` in `runner._wrap_with_package_setup`.
+- Fixed `RunReport` and `MultiScriptReport` `__post_init__` to preserve explicitly passed `all_passed=False` when result collections are empty.
+- Supported bare directory exclusions (e.g. `tests` or `tests/`) in `_matches_exclude` to match both directories and all contained files.
+
 ## [0.9.3] - 2026-10-11
 
 ### Added

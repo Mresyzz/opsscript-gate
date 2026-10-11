@@ -128,7 +128,8 @@ jobs:
                 echo "Tag $TARGET_TAG was released from earlier commit ($TAG_SHA != ${{ github.sha }}). Skipping release."
               fi
             else
-              echo "Target tag $TARGET_TAG does not exist. Creating it and handing publication to the tag workflow."
+              echo "Target tag $TARGET_TAG does not exist. Creating tag and publishing release."
+              IS_NEW_RELEASE="true"
               SHOULD_TAG="true"
             fi
           else

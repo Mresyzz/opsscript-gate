@@ -41,7 +41,7 @@ MAX_SCRIPT_SIZE_BYTES = 1024 * 1024  # 1 MB
 
 
 def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
-    """Match exclusions consistently whether callers use ``foo.sh``, ``./foo.sh``, or ``/foo.sh``."""
+    """Match exclusions consistently whether callers use ``foo.sh``, ``./foo.sh``, ``/foo.sh``, or directory names like ``tests``."""
     normalized_path = rel_path.replace("\\", "/")
     while normalized_path.startswith("./"):
         normalized_path = normalized_path[2:]
@@ -51,7 +51,12 @@ def _matches_exclude(rel_path: str, patterns: list[str] | None) -> bool:
         while normalized_pattern.startswith("./"):
             normalized_pattern = normalized_pattern[2:]
         normalized_pattern = normalized_pattern.lstrip("/")
+        if not normalized_pattern:
+            continue
         if fnmatch.fnmatchcase(normalized_path, normalized_pattern):
+            return True
+        pat = normalized_pattern.rstrip("/")
+        if normalized_path == pat or normalized_path.startswith(f"{pat}/") or fnmatch.fnmatchcase(normalized_path, f"{pat}/*"):
             return True
     return False
 

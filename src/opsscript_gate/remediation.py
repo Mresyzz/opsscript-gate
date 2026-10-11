@@ -12,30 +12,40 @@ class RemediationRule:
     hint: str
 
 
+def _normalize_cmd_basename(command: str | None) -> str:
+    """Normalize command path and extract clean executable basename."""
+    if not command:
+        return ""
+    norm = command.lower().replace("\\", "/").split("/")[-1]
+    if norm.endswith(".exe"):
+        norm = norm[:-4]
+    return norm
+
+
 def _match_alpine_apt(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    return "alpine" in distro.lower() and command.lower() in ("apt", "apt-get")
+    return "alpine" in distro.lower() and _normalize_cmd_basename(command) in ("apt", "apt-get")
 
 
 def _match_debian_ubuntu_apk(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
     d = distro.lower()
-    return ("debian" in d or "ubuntu" in d) and command.lower() == "apk"
+    return ("debian" in d or "ubuntu" in d) and _normalize_cmd_basename(command) == "apk"
 
 
 def _match_debian_ubuntu_yum(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
     d = distro.lower()
-    return ("debian" in d or "ubuntu" in d) and command.lower() in ("yum", "dnf")
+    return ("debian" in d or "ubuntu" in d) and _normalize_cmd_basename(command) in ("yum", "dnf")
 
 
 def _match_alpine_yum(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    return "alpine" in distro.lower() and command.lower() in ("yum", "dnf")
+    return "alpine" in distro.lower() and _normalize_cmd_basename(command) in ("yum", "dnf")
 
 
 def _match_rhel_fedora_apt(distro: str | None, command: str | None, kind: str) -> bool:
@@ -43,82 +53,66 @@ def _match_rhel_fedora_apt(distro: str | None, command: str | None, kind: str) -
         return False
     d = distro.lower()
     is_rhel = any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma"))
-    return is_rhel and command.lower() in ("apt", "apt-get", "apk")
-
+    return is_rhel and _normalize_cmd_basename(command) in ("apt", "apt-get", "apk")
 
 
 def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    return "alpine" in distro.lower() and command.lower() in ("bash", "/bin/bash", "/usr/bin/bash")
+    return "alpine" in distro.lower() and _normalize_cmd_basename(command) == "bash"
 
 
 def _match_curl(distro: str | None, command: str | None, kind: str) -> bool:
-    if not command:
-        return False
-    normalized = command.lower().replace("\\", "/").split("/")[-1]
-    if normalized.endswith(".exe"):
-        normalized = normalized[:-4]
-    return normalized == "curl"
+    return _normalize_cmd_basename(command) == "curl"
 
 
 def _match_wget(distro: str | None, command: str | None, kind: str) -> bool:
-    if not command:
-        return False
-    normalized = command.lower().replace("\\", "/").split("/")[-1]
-    if normalized.endswith(".exe"):
-        normalized = normalized[:-4]
-    return normalized == "wget"
+    return _normalize_cmd_basename(command) == "wget"
 
 
 def _match_sudo(distro: str | None, command: str | None, kind: str) -> bool:
-    if not command:
-        return False
-    normalized = command.lower().replace("\\", "/").split("/")[-1]
-    if normalized.endswith(".exe"):
-        normalized = normalized[:-4]
-    return normalized == "sudo"
+    return _normalize_cmd_basename(command) == "sudo"
 
 
 def _match_interpreter(distro: str | None, command: str | None, kind: str) -> bool:
     if kind == "missing_interpreter":
         return True
     if command and (command.startswith("/bin/") or command.startswith("/usr/bin/")):
-        base = command.split("/")[-1]
+        base = _normalize_cmd_basename(command)
         if base in ("bash", "sh", "zsh", "python", "python3", "perl"):
             return True
     return False
 
 
 # Mapping of common ops CLI command binaries to distro-specific package names.
-# Supported distro families: "debian" (Debian/Ubuntu), "alpine" (Alpine Linux).
+# Supported distro families: "debian" (Debian/Ubuntu), "alpine" (Alpine Linux), "rhel" (Fedora/CentOS/RHEL).
 COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
-    "curl": {"debian": "curl", "alpine": "curl"},
-    "wget": {"debian": "wget", "alpine": "wget"},
-    "jq": {"debian": "jq", "alpine": "jq"},
-    "git": {"debian": "git", "alpine": "git"},
-    "tar": {"debian": "tar", "alpine": "tar"},
-    "gzip": {"debian": "gzip", "alpine": "gzip"},
-    "bzip2": {"debian": "bzip2", "alpine": "bzip2"},
-    "xz": {"debian": "xz-utils", "alpine": "xz"},
-    "unzip": {"debian": "unzip", "alpine": "unzip"},
-    "zip": {"debian": "zip", "alpine": "zip"},
-    "python": {"debian": "python3", "alpine": "python3"},
-    "python3": {"debian": "python3", "alpine": "python3"},
-    "pip": {"debian": "python3-pip", "alpine": "py3-pip"},
-    "pip3": {"debian": "python3-pip", "alpine": "py3-pip"},
-    "sudo": {"debian": "sudo", "alpine": "sudo"},
-    "bash": {"debian": "bash", "alpine": "bash"},
-    "make": {"debian": "build-essential", "alpine": "build-base"},
-    "gcc": {"debian": "gcc", "alpine": "gcc"},
-    "ca-certificates": {"debian": "ca-certificates", "alpine": "ca-certificates"},
-    "openssl": {"debian": "openssl", "alpine": "openssl"},
-    "nc": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd"},
-    "netcat": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd"},
-    "socat": {"debian": "socat", "alpine": "socat"},
-    "envsubst": {"debian": "gettext-base", "alpine": "gettext"},
-    "crontab": {"debian": "cron", "alpine": "dcron"},
-    "ps": {"debian": "procps", "alpine": "procps"},
+    "curl": {"debian": "curl", "alpine": "curl", "rhel": "curl"},
+    "wget": {"debian": "wget", "alpine": "wget", "rhel": "wget"},
+    "jq": {"debian": "jq", "alpine": "jq", "rhel": "jq"},
+    "git": {"debian": "git", "alpine": "git", "rhel": "git"},
+    "tar": {"debian": "tar", "alpine": "tar", "rhel": "tar"},
+    "gzip": {"debian": "gzip", "alpine": "gzip", "rhel": "gzip"},
+    "bzip2": {"debian": "bzip2", "alpine": "bzip2", "rhel": "bzip2"},
+    "xz": {"debian": "xz-utils", "alpine": "xz", "rhel": "xz"},
+    "unzip": {"debian": "unzip", "alpine": "unzip", "rhel": "unzip"},
+    "zip": {"debian": "zip", "alpine": "zip", "rhel": "zip"},
+    "python": {"debian": "python3", "alpine": "python3", "rhel": "python3"},
+    "python3": {"debian": "python3", "alpine": "python3", "rhel": "python3"},
+    "pip": {"debian": "python3-pip", "alpine": "py3-pip", "rhel": "python3-pip"},
+    "pip3": {"debian": "python3-pip", "alpine": "py3-pip", "rhel": "python3-pip"},
+    "sudo": {"debian": "sudo", "alpine": "sudo", "rhel": "sudo"},
+    "bash": {"debian": "bash", "alpine": "bash", "rhel": "bash"},
+    "make": {"debian": "build-essential", "alpine": "build-base", "rhel": "make"},
+    "gcc": {"debian": "gcc", "alpine": "gcc", "rhel": "gcc"},
+    "ca-certificates": {"debian": "ca-certificates", "alpine": "ca-certificates", "rhel": "ca-certificates"},
+    "openssl": {"debian": "openssl", "alpine": "openssl", "rhel": "openssl"},
+    "nc": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd", "rhel": "nmap-ncat"},
+    "netcat": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd", "rhel": "nmap-ncat"},
+    "socat": {"debian": "socat", "alpine": "socat", "rhel": "socat"},
+    "envsubst": {"debian": "gettext-base", "alpine": "gettext", "rhel": "gettext"},
+    "crontab": {"debian": "cron", "alpine": "dcron", "rhel": "cronie"},
+    "ps": {"debian": "procps", "alpine": "procps", "rhel": "procps-ng"},
 }
 
 
