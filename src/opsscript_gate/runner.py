@@ -832,6 +832,8 @@ def run_on_distro(
 
     # Line-ending defense & Windows-safe path preparation
     own_temp_file: tempfile.NamedTemporaryFile | None = None
+    container = None
+    start_time = time.perf_counter()
     if prepared_script_path is not None:
         mount_src = prepared_script_path
     else:
@@ -847,35 +849,31 @@ def run_on_distro(
                 error_message=f"Failed to read/prepare script: {exc}",
             )
 
-    safe_mount_src = normalize_host_path_for_docker(mount_src)
     try:
-        container_command = _wrap_with_package_setup(command, package_list)
-    except (TypeError, ValueError) as exc:
-        return SingleResult(
-            distro=distro,
-            status=DistroStatus.ERROR,
-            exit_code=None,
-            duration=0.0,
-            output_snippet="",
-            error_message=str(exc),
-        )
+        safe_mount_src = normalize_host_path_for_docker(mount_src)
+        try:
+            container_command = _wrap_with_package_setup(command, package_list)
+        except (TypeError, ValueError) as exc:
+            return SingleResult(
+                distro=distro,
+                status=DistroStatus.ERROR,
+                exit_code=None,
+                duration=0.0,
+                output_snippet="",
+                error_message=str(exc),
+            )
 
-    # Security: Strict unprivileged options and read-only mount
-    volumes = {
-        safe_mount_src: {
-            "bind": "/tmp/target_script.sh",
-            "mode": "ro",
+        # Security: Strict unprivileged options and read-only mount
+        volumes = {
+            safe_mount_src: {
+                "bind": "/tmp/target_script.sh",
+                "mode": "ro",
+            }
         }
-    }
-    environment = {
-        "DEBIAN_FRONTEND": "noninteractive",
-        "CI": "true",
-    }
-
-    container = None
-    start_time = time.perf_counter()
-
-    try:
+        environment = {
+            "DEBIAN_FRONTEND": "noninteractive",
+            "CI": "true",
+        }
         create_kwargs = {
             "image": distro,
             "command": container_command,
@@ -1076,13 +1074,46 @@ def run_matrix(
     except ValueError:
         mode = None
 
+    distro_list = _normalize_matrix(matrix)
+
     abs_script = os.path.abspath(script_path)
+    if not os.path.exists(abs_script):
+        return RunReport(
+            results=[
+                SingleResult(
+                    distro=d,
+                    status=DistroStatus.ERROR,
+                    exit_code=None,
+                    duration=0.0,
+                    output_snippet="",
+                    error_message=f"Target script does not exist: {abs_script}",
+                )
+                for d in distro_list
+            ],
+            total_duration=0.0,
+            all_passed=False,
+        )
+    if not os.path.isfile(abs_script):
+        return RunReport(
+            results=[
+                SingleResult(
+                    distro=d,
+                    status=DistroStatus.ERROR,
+                    exit_code=None,
+                    duration=0.0,
+                    output_snippet="",
+                    error_message=f"Target script path is not a regular file: {abs_script}",
+                )
+                for d in distro_list
+            ],
+            total_duration=0.0,
+            all_passed=False,
+        )
+
     parsed_shebang: ShebangParseResult | None = None
     if mode is not None and mode != ShellMode.POSIX:
-        if os.path.isfile(abs_script):
-            parsed_shebang = inspect_shebang(abs_script)
+        parsed_shebang = inspect_shebang(abs_script)
 
-    distro_list = _normalize_matrix(matrix)
     if isinstance(packages, (str, bytes)):
         raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])
@@ -1102,26 +1133,23 @@ def run_matrix(
 
     # Prepare script once for all parallel matrix workers
     shared_temp_file: tempfile.NamedTemporaryFile | None = None
-    prepared_script: str = abs_script
-    if os.path.isfile(abs_script):
-        try:
-            prepared_script, shared_temp_file = prepare_script(abs_script)
-        except Exception as exc:
-            return RunReport(
-                results=[
-                    SingleResult(
-                        distro=d,
-                        status=DistroStatus.ERROR,
-                        exit_code=None,
-                        duration=0.0,
-                        output_snippet="",
-                        error_message=f"Failed to read/prepare script: {exc}",
-                    )
-                    for d in distro_list
-                ],
-                total_duration=0.0,
-                all_passed=False,
-            )
+    try:
+        prepared_script, shared_temp_file = prepare_script(abs_script)
+    except Exception as exc:
+        return RunReport(
+            results=[
+                SingleResult(
+                    distro=d,
+                    status=DistroStatus.ERROR,
+                    exit_code=None,
+                    duration=0.0,
+                    output_snippet="",
+                    error_message=f"Failed to read/prepare script: {exc}",
+                )
+                for d in distro_list
+            ],
+            total_duration=0.0,
+        )
 
     start_total = time.perf_counter()
     results: list[SingleResult] = [None] * len(distro_list)  # type: ignore

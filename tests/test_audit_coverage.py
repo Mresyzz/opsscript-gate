@@ -289,3 +289,79 @@ def test_remediation_hint_for_interpreter():
 
     # 不匹配时返回 None
     assert generate_remediation_hint(distro="ubuntu:22.04", command="/usr/bin/unknown", kind="missing_command") is None
+
+
+# ==============================================================================
+# 5. 发现的新问题与防御加固测试
+# ==============================================================================
+
+def test_is_shell_script_unreadable_file(tmp_path):
+    from opsscript_gate.discovery import is_shell_script
+
+    unreadable = tmp_path / "denied.sh"
+    unreadable.write_text("#!/bin/sh\necho test\n", encoding="utf-8")
+
+    # 模拟读权限被拒绝（PermissionError）
+    with mock.patch("builtins.open", side_effect=PermissionError("Permission denied")):
+        assert is_shell_script(unreadable) is False
+
+
+def test_run_on_distro_cleans_up_own_temp_file_on_error(tmp_path):
+    import os
+    from opsscript_gate.runner import run_on_distro
+
+    # 创建包含 CRLF 的脚本以触发 prepare_script 生成临时文件
+    script = tmp_path / "crlf_pkg_fail.sh"
+    script.write_bytes(b"#!/bin/sh\r\necho hello\r\n")
+
+    created_temp_files = []
+    original_named_temp = __import__("tempfile").NamedTemporaryFile
+
+    def spy_temp_file(*args, **kwargs):
+        tf = original_named_temp(*args, **kwargs)
+        created_temp_files.append(tf.name)
+        return tf
+
+    with mock.patch("tempfile.NamedTemporaryFile", side_effect=spy_temp_file):
+        with mock.patch("opsscript_gate.runner._wrap_with_package_setup", side_effect=ValueError("Setup generation failed")):
+            result = run_on_distro(
+                client=mock.MagicMock(),
+                script_path=str(script),
+                distro="debian:12-slim",
+                packages=["curl"],
+            )
+            assert result.status == DistroStatus.ERROR
+            assert "Setup generation failed" in (result.error_message or "")
+
+    # 验证创建的临时文件在返回后已经被完全清理，没有发生泄漏
+    assert len(created_temp_files) >= 1
+    for temp_path in created_temp_files:
+        assert not os.path.exists(temp_path)
+
+
+def test_run_matrix_directory_and_missing_script_preflight(tmp_path):
+    from opsscript_gate.runner import run_matrix
+
+    missing = str(tmp_path / "does_not_exist.sh")
+    report_missing = run_matrix(missing, matrix=["debian:12-slim"])
+    assert report_missing.all_passed is False
+    assert len(report_missing.results) == 1
+    assert "Target script does not exist" in (report_missing.results[0].error_message or "")
+
+    is_dir = str(tmp_path)
+    report_dir = run_matrix(is_dir, matrix=["debian:12-slim"])
+    assert report_dir.all_passed is False
+    assert len(report_dir.results) == 1
+    assert "not a regular file" in (report_dir.results[0].error_message or "")
+
+
+def test_publish_output_preserves_posix_newline(tmp_path, capsys):
+    from opsscript_gate.cli import publish_output
+
+    out_file = tmp_path / "report_clean.txt"
+    publish_output("hello\nworld", str(out_file))
+
+    # 验证无论在何种操作系统下写入，都严格保持标准 LF 换行，绝无 \r\n 污染
+    raw_bytes = out_file.read_bytes()
+    assert raw_bytes == b"hello\nworld\n"
+    assert b"\r" not in raw_bytes
