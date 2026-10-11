@@ -279,13 +279,35 @@ def test_remediation_interpreter_matchers():
 
 
 def test_remediation_hint_for_interpreter():
-    # 测试通过顶级接口 generate_remediation_hint 生成解释器修复建议
-    hint = generate_remediation_hint(
+    # kind == "missing_interpreter" 优先级高于普通命令
+    hint_kind = generate_remediation_hint(
+        distro="ubuntu:22.04",
+        command="/usr/bin/python3",
+        kind="missing_interpreter",
+    )
+    assert hint_kind == "Ensure the required interpreter is installed or adjust the shebang path."
+
+    # 未被包名映射接管的解释器路径（如 zsh）应触发解释器修复建议
+    hint_zsh = generate_remediation_hint(
+        distro="ubuntu:22.04",
+        command="/usr/bin/zsh",
+        kind="missing_command",
+    )
+    assert hint_zsh == "Ensure the required interpreter is installed or adjust the shebang path."
+
+    # 包含在解释器规则中的路径（如 python3），generate_remediation_hint 保持保守提示
+    hint_py = generate_remediation_hint(
         distro="ubuntu:22.04",
         command="/usr/bin/python3",
         kind="missing_command",
     )
-    assert hint == "Ensure the required interpreter is installed or adjust the shebang path."
+    assert hint_py == "Ensure the required interpreter is installed or adjust the shebang path."
+
+    # resolve_package_recommendation 则针对该命令提供精准的跨发行版包名与安装命令
+    from opsscript_gate.remediation import resolve_package_recommendation
+    pkg_py, cmd_py = resolve_package_recommendation("/usr/bin/python3", "ubuntu:22.04")
+    assert pkg_py == "python3"
+    assert "apt-get install -y python3" in cmd_py
 
     # 不匹配时返回 None
     assert generate_remediation_hint(distro="ubuntu:22.04", command="/usr/bin/unknown", kind="missing_command") is None
@@ -365,3 +387,95 @@ def test_publish_output_preserves_posix_newline(tmp_path, capsys):
     raw_bytes = out_file.read_bytes()
     assert raw_bytes == b"hello\nworld\n"
     assert b"\r" not in raw_bytes
+
+
+# ==============================================================================
+# 6. 跨发行版包名推荐与自动安装建议功能测试
+# ==============================================================================
+
+def test_detect_distro_family():
+    from opsscript_gate.remediation import detect_distro_family
+
+    assert detect_distro_family("alpine:3.20") == "alpine"
+    assert detect_distro_family("debian:12-slim") == "debian"
+    assert detect_distro_family("ubuntu:22.04") == "debian"
+    assert detect_distro_family("fedora:40") == "rhel"
+    assert detect_distro_family("centos:7") == "rhel"
+    assert detect_distro_family("rocky:9") == "rhel"
+    assert detect_distro_family("archlinux:latest") == "unknown"
+    assert detect_distro_family(None) == "unknown"
+
+
+def test_resolve_package_recommendation():
+    from opsscript_gate.remediation import resolve_package_recommendation
+
+    # 跨发行版包名差异测试：pip 在 Alpine 为 py3-pip，在 Debian 为 python3-pip
+    alp_pip, alp_cmd = resolve_package_recommendation("pip", "alpine:3.20")
+    assert alp_pip == "py3-pip"
+    assert alp_cmd == "apk add --no-cache py3-pip"
+
+    deb_pip, deb_cmd = resolve_package_recommendation("pip", "debian:12-slim")
+    assert deb_pip == "python3-pip"
+    assert deb_cmd == "apt-get install -y python3-pip"
+
+    # xz 在 Debian 为 xz-utils，在 Alpine 为 xz
+    deb_xz, deb_xz_cmd = resolve_package_recommendation("xz", "ubuntu:24.04")
+    assert deb_xz == "xz-utils"
+    assert deb_xz_cmd == "apt-get install -y xz-utils"
+
+    alp_xz, alp_xz_cmd = resolve_package_recommendation("xz", "alpine:3.20")
+    assert alp_xz == "xz"
+    assert alp_xz_cmd == "apk add --no-cache xz"
+
+    # 常见运维命令 jq, curl, git
+    jq_pkg, jq_cmd = resolve_package_recommendation("jq", "alpine:3.20")
+    assert jq_pkg == "jq"
+    assert jq_cmd == "apk add --no-cache jq"
+
+    # 未知命令或空输入
+    assert resolve_package_recommendation("unknown_custom_tool", "debian:12-slim") == (None, None)
+    assert resolve_package_recommendation(None, "debian:12-slim") == (None, None)
+
+
+def test_resolve_package_recommendation_install_commands():
+    from opsscript_gate.remediation import resolve_package_recommendation, generate_remediation_hint
+
+    # 针对 jq 的精准包名与安装命令
+    pkg_alp, cmd_alp = resolve_package_recommendation("jq", distro="alpine:3.20")
+    assert pkg_alp == "jq"
+    assert cmd_alp == "apk add --no-cache jq"
+
+    pkg_deb, cmd_deb = resolve_package_recommendation("jq", distro="debian:12-slim")
+    assert pkg_deb == "jq"
+    assert cmd_deb == "apt-get install -y jq"
+
+    # 确保原有包管理器误用规则依然优先且行为稳定
+    hint_apt = generate_remediation_hint(distro="alpine:3.20", command="apt-get", kind="missing_command")
+    assert hint_apt == "Alpine normally uses apk instead of apt-get."
+
+
+def test_failure_diagnostic_and_sarif_suggested_package():
+    from opsscript_gate.models import FailureDiagnostic, SingleResult, RunReport, DistroStatus
+    from opsscript_gate.reporter import format_sarif
+
+    diag = FailureDiagnostic(
+        kind="missing_command",
+        command="jq",
+        message="command not found: jq",
+        suggested_package="jq",
+    )
+    d_dict = diag.to_dict()
+    assert d_dict.get("suggested_package") == "jq"
+
+    res = SingleResult(
+        distro="alpine:3.20",
+        status=DistroStatus.FAIL,
+        exit_code=127,
+        duration=0.1,
+        diagnostic=diag,
+    )
+    report = RunReport(results=[res], total_duration=0.1)
+    sarif = json.loads(format_sarif(report, script_path="deploy.sh"))
+    props = sarif["runs"][0]["results"][0]["properties"]
+    assert props.get("command") == "jq"
+    assert props.get("suggestedPackage") == "jq"

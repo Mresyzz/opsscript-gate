@@ -90,6 +90,90 @@ def _match_interpreter(distro: str | None, command: str | None, kind: str) -> bo
     return False
 
 
+# Mapping of common ops CLI command binaries to distro-specific package names.
+# Supported distro families: "debian" (Debian/Ubuntu), "alpine" (Alpine Linux).
+COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
+    "curl": {"debian": "curl", "alpine": "curl"},
+    "wget": {"debian": "wget", "alpine": "wget"},
+    "jq": {"debian": "jq", "alpine": "jq"},
+    "git": {"debian": "git", "alpine": "git"},
+    "tar": {"debian": "tar", "alpine": "tar"},
+    "gzip": {"debian": "gzip", "alpine": "gzip"},
+    "bzip2": {"debian": "bzip2", "alpine": "bzip2"},
+    "xz": {"debian": "xz-utils", "alpine": "xz"},
+    "unzip": {"debian": "unzip", "alpine": "unzip"},
+    "zip": {"debian": "zip", "alpine": "zip"},
+    "python": {"debian": "python3", "alpine": "python3"},
+    "python3": {"debian": "python3", "alpine": "python3"},
+    "pip": {"debian": "python3-pip", "alpine": "py3-pip"},
+    "pip3": {"debian": "python3-pip", "alpine": "py3-pip"},
+    "sudo": {"debian": "sudo", "alpine": "sudo"},
+    "bash": {"debian": "bash", "alpine": "bash"},
+    "make": {"debian": "build-essential", "alpine": "build-base"},
+    "gcc": {"debian": "gcc", "alpine": "gcc"},
+    "ca-certificates": {"debian": "ca-certificates", "alpine": "ca-certificates"},
+    "openssl": {"debian": "openssl", "alpine": "openssl"},
+    "nc": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd"},
+    "netcat": {"debian": "netcat-openbsd", "alpine": "netcat-openbsd"},
+    "socat": {"debian": "socat", "alpine": "socat"},
+    "envsubst": {"debian": "gettext-base", "alpine": "gettext"},
+    "crontab": {"debian": "cron", "alpine": "dcron"},
+    "ps": {"debian": "procps", "alpine": "procps"},
+}
+
+
+def detect_distro_family(distro: str | None) -> str:
+    """Identify the distribution family for package manager commands."""
+    if not distro:
+        return "unknown"
+    d = distro.lower()
+    if "alpine" in d:
+        return "alpine"
+    if any(name in d for name in ("debian", "ubuntu", "mint")):
+        return "debian"
+    if any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma")):
+        return "rhel"
+    return "unknown"
+
+
+def resolve_package_recommendation(
+    command: str | None,
+    distro: str | None,
+) -> tuple[str | None, str | None]:
+    """
+    Resolve suggested package name and actionable install command for a missing command.
+    Returns (suggested_package_name, install_command).
+    """
+    if not command:
+        return None, None
+    norm_cmd = command.lower().replace("\\", "/").split("/")[-1]
+    if norm_cmd.endswith(".exe"):
+        norm_cmd = norm_cmd[:-4]
+
+    packages = COMMON_COMMAND_PACKAGES.get(norm_cmd)
+    if not packages:
+        return None, None
+
+    family = detect_distro_family(distro)
+    package_name = packages.get(family)
+    if not package_name and family in ("unknown", "rhel"):
+        package_name = packages.get("debian") or packages.get("alpine")
+
+    if not package_name:
+        return None, None
+
+    if family == "alpine":
+        install_cmd = f"apk add --no-cache {package_name}"
+    elif family == "debian":
+        install_cmd = f"apt-get install -y {package_name}"
+    elif family == "rhel":
+        install_cmd = f"dnf install -y {package_name}"
+    else:
+        install_cmd = None
+
+    return package_name, install_cmd
+
+
 REMEDIATION_RULES: list[RemediationRule] = [
     RemediationRule(
         rule_id="alpine_apt",
