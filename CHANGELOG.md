@@ -1,6 +1,18 @@
 # Changelog
 
-## [0.9.2] - Unreleased
+## [0.9.3] - 2026-10-11
+
+### Added
+- Added cross-distribution package name mapping and actionable remediation suggestions (`apt-get`, `apk`, `dnf`) for common missing operations commands (`curl`, `wget`, `jq`, `git`, `tar`, `python3`, `pip`, `sudo`, `make`, `gcc`, etc.).
+- Extended `FailureDiagnostic` and SARIF output with structured `suggested_package` property.
+
+### Fixed
+- Fixed unreadable shell script candidate misclassification during discovery.
+- Ensured temporary script files are safely cleaned up during distribution preparation errors.
+- Added preflight validation to reject directory and missing script paths before creating worker threads.
+- Enforced consistent POSIX LF line endings in report output files across platforms.
+
+## [0.9.2] - 2026-10-05
 
 ### Fixed
 - Hardened SARIF, Markdown, terminal, and machine-readable output handling.

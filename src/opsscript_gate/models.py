@@ -30,6 +30,7 @@ class FailureDiagnostic:
     line: int | None = None
     distro: str | None = None
     hint: str | None = None
+    suggested_package: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -44,6 +45,8 @@ class FailureDiagnostic:
             d["distro"] = self.distro
         if self.hint is not None:
             d["hint"] = self.hint
+        if self.suggested_package is not None:
+            d["suggested_package"] = self.suggested_package
         return d
 
 

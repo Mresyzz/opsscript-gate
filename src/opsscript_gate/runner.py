@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from opsscript_gate.config import MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
-from opsscript_gate.remediation import generate_remediation_hint
+from opsscript_gate.remediation import generate_remediation_hint, resolve_package_recommendation
 
 DEFAULT_MATRIX: list[str] = [
     "debian:12-slim",
@@ -245,6 +245,7 @@ def extract_failure_diagnostic(
             command=sanitized_cmd,
             kind="missing_command",
         )
+        suggested_pkg, _ = resolve_package_recommendation(sanitized_cmd, distro)
 
         return FailureDiagnostic(
             kind="missing_command",
@@ -253,6 +254,7 @@ def extract_failure_diagnostic(
             line=line_num,
             distro=distro,
             hint=hint,
+            suggested_package=suggested_pkg,
         )
 
     return None

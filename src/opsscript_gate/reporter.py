@@ -582,8 +582,11 @@ def _sarif_result(result: SingleResult, script_path: str) -> dict[str, object] |
     }
     if result.exit_code is not None:
         properties["exitCode"] = result.exit_code
-    if result.diagnostic and result.diagnostic.command:
-        properties["command"] = sanitize_display_text(result.diagnostic.command)
+    if result.diagnostic:
+        if result.diagnostic.command:
+            properties["command"] = sanitize_display_text(result.diagnostic.command)
+        if result.diagnostic.suggested_package:
+            properties["suggestedPackage"] = sanitize_display_text(result.diagnostic.suggested_package)
 
     return {
         "ruleId": rule_id,
