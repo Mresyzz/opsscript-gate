@@ -489,7 +489,8 @@ def publish_output(output: str, filename: str | None) -> bool:
         try:
             path = Path(filename)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(output + "\n", encoding="utf-8")
+            with path.open("w", encoding="utf-8", newline="\n") as stream:
+                stream.write(output + "\n")
         except OSError as err:
             sys.stderr.write(f"Error writing report: {err}\n")
             return False

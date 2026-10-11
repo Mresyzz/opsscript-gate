@@ -78,6 +78,7 @@ def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES
     Check if a file is a candidate shell script:
     - Must be a regular file, never a symlink.
     - File size must not exceed max_size_bytes.
+    - Must be readable by the current process.
     - Extension is .sh or .bash, OR the first line is a recognized shell shebang.
     """
     try:
@@ -87,13 +88,12 @@ def is_shell_script(file_path: Path, max_size_bytes: int = MAX_SCRIPT_SIZE_BYTES
         if stat.st_size == 0 or stat.st_size > max_size_bytes:
             return False
 
+        with open(file_path, "rb") as f:
+            first_line_bytes = f.readline(256)
+
         ext = file_path.suffix.lower()
         if ext in (".sh", ".bash"):
             return True
-
-        # If extension is not .sh/.bash, inspect the first line
-        with open(file_path, "rb") as f:
-            first_line_bytes = f.readline(256)
 
         first_line = first_line_bytes.decode("utf-8-sig", errors="ignore").strip()
         return any(first_line == prefix or first_line.startswith(prefix + " ")
