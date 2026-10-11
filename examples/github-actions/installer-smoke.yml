@@ -25,7 +25,7 @@ jobs:
           {
             printf '#!/bin/bash\n(\n'
             cat install.sh
-            printf '\n) || exit $?\n'
+            printf '\n)\ninstaller_status=$?\n[ "$installer_status" -eq 0 ] || exit "$installer_status"\n'
             cat <<'EOF'
           binary="$HOME/.local/bin/mytool"
           test -x "$binary" || { echo "Installer did not create $binary" >&2; exit 1; }
