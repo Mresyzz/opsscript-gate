@@ -1,0 +1,53 @@
+name: Installer smoke test
+
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - .github/workflows/installer-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Replace the binary path and smoke command with your installer's contract.
+      - name: Prepare installer and installation check
+        shell: bash
+        run: |
+          {
+            printf '#!/bin/bash\n(\n'
+            cat install.sh
+            printf '\n) || exit $?\n'
+            cat <<'EOF'
+          binary="$HOME/.local/bin/mytool"
+          test -x "$binary" || { echo "Installer did not create $binary" >&2; exit 1; }
+          "$binary" --version
+          EOF
+          } > installer-smoke.sh
+
+      - name: Install and verify in each distribution
+        uses: Mresyzz/opsscript-gate@v0.9.4
+        with:
+          script-path: installer-smoke.sh
+          shell: bash
+          matrix: debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20
+          network: bridge
+          packages: bash,curl,ca-certificates,tar
+          timeout: '120'
+          output: reports/installer-smoke.json
+
+      - name: Save report, including failed installs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-smoke
+          path: reports/installer-smoke.json
+          if-no-files-found: ignore

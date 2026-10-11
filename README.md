@@ -87,6 +87,10 @@ image's native package manager before testing. Package setup is opt-in and
 requires bridge networking. See [configuration and migration](docs/configuration.md) and
 [why a shell script works on Ubuntu but fails on Alpine](docs/troubleshooting.md).
 
+Testing an installer? Use the [installation smoke test workflow](docs/installer-smoke-test.md)
+to check the installed binary inside each container. A script's zero exit status
+alone does not prove it installed successfully.
+
 ## Quickstart
 
 ### In GitHub Actions
