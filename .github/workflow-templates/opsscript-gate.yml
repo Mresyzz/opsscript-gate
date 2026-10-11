@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
 
       - name: Run OpsScript Gate
-        uses: Mresyzz/opsscript-gate@v0.9.2
+        uses: Mresyzz/opsscript-gate@v0.9.4
         with:
           shell: auto
           network: none
