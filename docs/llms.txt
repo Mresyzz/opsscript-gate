@@ -25,6 +25,7 @@ a ShellCheck companion, not a replacement for static analysis or a security sand
 ## Canonical pages
 
 - Runtime testing guide: https://mresyzz.github.io/opsscript-gate/command-not-found.html
+- Verify installation results: https://mresyzz.github.io/opsscript-gate/installer-smoke-test.html
 - Problem-first guide: https://github.com/Mresyzz/opsscript-gate/blob/main/docs/command-not-found.md
 - README and copyable workflow: https://github.com/Mresyzz/opsscript-gate#quickstart
 - Troubleshooting: https://github.com/Mresyzz/opsscript-gate/blob/main/docs/troubleshooting.md
