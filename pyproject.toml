@@ -73,6 +73,7 @@ Troubleshooting = "https://github.com/Mresyzz/opsscript-gate/blob/main/docs/comm
 test = [
     "pytest>=8.0.0",
     "markdown-it-py>=3.0.0",
+    "PyYAML>=6.0.0",
 ]
 
 [project.scripts]
