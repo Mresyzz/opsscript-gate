@@ -37,11 +37,12 @@ jobs:
         uses: Mresyzz/opsscript-gate@v0.9.4
         with:
           script-path: installer-smoke.sh
-          shell: bash
+          shell: auto
           matrix: debian:12-slim,ubuntu:22.04,ubuntu:24.04,alpine:3.20
           network: bridge
           packages: bash,curl,ca-certificates,tar
           timeout: '120'
+          format: json
           output: reports/installer-smoke.json
 
       - name: Save report, including failed installs
