@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.2
+      - uses: Mresyzz/opsscript-gate@v0.9.4
         with:
           script-path: install.sh
           shell: auto
@@ -186,6 +186,7 @@ opsscript-gate run ./install.sh</code></pre>
     <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/troubleshooting.md">troubleshooting</a>,
     or <a href="https://github.com/Mresyzz/opsscript-gate/blob/main/SECURITY.md">security boundaries</a>.
     <a href="./">Open the interactive demo</a>.</footer>
+<p>Installer returns zero but the program is missing? <a href="installer-smoke-test.html">Verify the installed binary in the same container.</a></p>
 </main>
 </body>
 </html>

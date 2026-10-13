@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installer says success but binary is missing: test installation in CI | OpsScript Gate</title>
+  <meta name="description" content="Catch shell installers that return exit code 0 after failed downloads. Verify the installed binary in Debian, Ubuntu and Alpine with a copyable GitHub Actions workflow.">
+  <link rel="canonical" href="https://mresyzz.github.io/opsscript-gate/installer-smoke-test.html">
+  <style>
+    :root { color-scheme: light dark; font: 17px/1.65 system-ui,sans-serif; }
+    body { max-width: 780px; margin: auto; padding: 24px; }
+    h1,h2 { line-height: 1.25; } h1 { font-size: clamp(1.8rem,5vw,2.6rem); }
+    a { color: light-dark(#1659a6,#90c2ff); } pre { padding: 18px; overflow-x: auto; background: light-dark(#f1f4f7,#19212b); border-radius: 8px; }
+    code { font-size: .9em; } .note { border-left: 3px solid #6586ac; padding-left: 16px; }
+    .download { display: inline-block; padding: 10px 18px; border: 1px solid currentColor; border-radius: 6px; }
+    nav,footer { font-size: .9rem; } footer { margin-top: 48px; }
+  </style>
+</head>
+<body>
+  <nav><a href="./">OpsScript Gate</a> · <a href="command-not-found.html">Runtime troubleshooting</a> · <a href="https://github.com/Mresyzz/opsscript-gate">GitHub</a></nav>
+  <main>
+    <h1>Your installer says success. Was the binary actually installed?</h1>
+    <p>A failed download can leave an installer with nothing to extract. If the script
+      continues and ends with a successful <code>echo</code>, CI can turn green even
+      though the program is missing. Test the installation's result inside the same
+      container, not just the installer's exit code.</p>
+    <h2>Make installation success explicit</h2>
+    <p>After running the installer, check its expected binary and execute a harmless,
+      noninteractive smoke command. Adapt this path and command to your program:</p>
+    <pre><code>binary="$HOME/.local/bin/mytool"
+test -x "$binary" || { echo "Installer did not create $binary" &gt;&amp;2; exit 1; }
+"$binary" --version</code></pre>
+    <p>The binary and installer must be checked in the <strong>same container</strong>.
+      A separate step on the GitHub runner sees a different filesystem.</p>
+    <h2>Add the four-distribution workflow</h2>
+    <p><a class="download" href="installer-smoke.yml" download>Download installer-smoke.yml</a></p>
+    <ol>
+      <li>Save the workflow as <code>.github/workflows/installer-smoke.yml</code>.</li>
+      <li>Change <code>install.sh</code> to your standalone installer's path.</li>
+      <li>Replace <code>$HOME/.local/bin/mytool</code> and <code>--version</code> with
+        your installed binary and a smoke command that fails when it cannot start.</li>
+      <li>Review packages, timeout and supported images. Add packaging configuration
+        to the workflow's trigger paths when archive layout depends on it.</li>
+      <li>Open a pull request or run the workflow manually. Inspect the saved JSON
+        report for failed images.</li>
+    </ol>
+    <p>The workflow uses OpsScript Gate v0.9.4 to run Debian 12, Ubuntu 22.04/24.04
+      and Alpine 3.20. It embeds the checked-out installer in a subshell, preserves
+      its failure status and runs the binary check afterwards. An explicit
+      <code>exit 0</code> in the installer cannot skip the check.</p>
+    <p class="note">Downloads require network access. The example provisions Bash,
+      curl, CA certificates and tar. That verifies installation with these prerequisites;
+      it does not prove the installer works on a bare image. Only the target script
+      is mounted, so installers requiring sibling repository files need another setup.</p>
+    <h2>A real false-success case</h2>
+    <p>In a <a href="https://github.com/Mresyzz/cli/actions/runs/38145896335">public fork test of Latitude's CLI installer</a>,
+      an Ubuntu 22.04 job downloaded content that was not gzip. Extraction and moving
+      the binary failed, but the installer still printed “Installation finished”.
+      The binary check correctly failed because <code>$HOME/.lsh/lsh</code> was absent.</p>
+    <p>A <a href="https://github.com/Mresyzz/cli/actions/runs/38146383228">later run with installation checks passed all four images</a>.
+      The earlier failure demonstrates why postconditions matter; it does not establish
+      an Ubuntu-specific defect. These are fork validations, not an upstream endorsement.</p>
+    <h2>What a green result proves</h2>
+    <p>The tested artifact installed and its smoke command succeeded in that container
+      during that run. HTTP errors, rate limits or changing release assets can affect
+      repeat runs. Containers share the host kernel; this is not a full-machine test
+      or a test of every application feature.</p>
+    <p><a href="https://github.com/Mresyzz/opsscript-gate/blob/main/docs/installer-smoke-test.md">Read the source guide</a> ·
+      <a href="command-not-found.html">Diagnose missing commands and interpreters</a></p>
+  </main>
+  <footer>OpsScript Gate · MIT license · <a href="https://pypi.org/project/opsscript-gate/">Python CLI</a></footer>
+</body>
+</html>
