@@ -42,6 +42,7 @@ jobs:
           network: bridge
           packages: bash,curl,ca-certificates,tar
           timeout: '120'
+          format: json
           output: reports/installer-smoke.json
 
       - name: Save report, including failed installs
