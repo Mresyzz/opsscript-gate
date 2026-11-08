@@ -9,12 +9,12 @@ ROOT = Path(__file__).parents[1]
 def test_action_metadata_is_valid_and_inputs_are_wired():
     text = (ROOT / "action.yml").read_text(encoding="utf-8")
     assert "using: 'composite'" in text
-    for name in ("config", "preset", "exclude", "max-scripts", "dry-run", "output", "changed-since", "packages", "repeat"):
+    for name in ("config", "preset", "exclude", "max-scripts", "dry-run", "output", "changed-since", "packages", "repeat", "env", "workdir"):
         assert f"  {name}:" in text
     run_text = text
     for flag in ("--timeout", "--format", "--shell", "--mem-limit", "--pids-limit",
                  "--network", "--packages", "--matrix", "--jobs", "--config", "--preset", "--repeat",
-                 "--max-scripts", "--output", "--exclude"):
+                 "--max-scripts", "--output", "--exclude", "--env", "--workdir"):
         assert flag in run_text
     assert "json, or sarif" in text
     assert "--changed-since" in run_text

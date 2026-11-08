@@ -50,6 +50,14 @@ inputs:
     description: 'Optional comma- or newline-separated packages to install before running (requires network=bridge)'
     required: false
     default: ''
+  env:
+    description: 'Newline-separated list of environment variables to pass into containers (e.g. KEY=VALUE or KEY)'
+    required: false
+    default: ''
+  workdir:
+    description: 'Host directory to mount read-only into /workspace as the container working directory'
+    required: false
+    default: ''
 
   config:
     description: 'Path to project JSON configuration'
@@ -116,6 +124,8 @@ runs:
         INPUT_PIDS_LIMIT: ${{ inputs.pids-limit }}
         INPUT_NETWORK: ${{ inputs.network }}
         INPUT_PACKAGES: ${{ inputs.packages }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_WORKDIR: ${{ inputs.workdir }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_PRESET: ${{ inputs.preset }}
         INPUT_EXCLUDE: ${{ inputs.exclude }}
@@ -137,6 +147,7 @@ runs:
         [ -z "$INPUT_PIDS_LIMIT" ] || ARGS+=(--pids-limit "$INPUT_PIDS_LIMIT")
         [ -z "$INPUT_NETWORK" ] || ARGS+=(--network "$INPUT_NETWORK")
         [ -z "$INPUT_PACKAGES" ] || ARGS+=(--packages "$INPUT_PACKAGES")
+        [ -z "$INPUT_WORKDIR" ] || ARGS+=(--workdir "$INPUT_WORKDIR")
         [ -z "$INPUT_MATRIX" ] || ARGS+=(--matrix "$INPUT_MATRIX")
         [ -z "$INPUT_JOBS" ] || ARGS+=(--jobs "$INPUT_JOBS")
         [ -z "$INPUT_CONFIG" ] || ARGS+=(--config "$INPUT_CONFIG")
@@ -144,6 +155,10 @@ runs:
         [ -z "$INPUT_MAX_SCRIPTS" ] || ARGS+=(--max-scripts "$INPUT_MAX_SCRIPTS")
         [ -z "$INPUT_OUTPUT" ] || ARGS+=(--output "$INPUT_OUTPUT")
         [ -z "$INPUT_CHANGED_SINCE" ] || ARGS+=(--changed-since "$INPUT_CHANGED_SINCE")
+        while IFS= read -r env_var; do
+          env_var="${env_var%$'\r'}"
+          [ -z "$env_var" ] || ARGS+=("--env" "$env_var")
+        done <<< "$INPUT_ENV"
         while IFS= read -r pattern; do
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")

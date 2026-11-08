@@ -123,6 +123,16 @@ COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
     "envsubst": {"debian": "gettext-base", "alpine": "gettext", "rhel": "gettext"},
     "crontab": {"debian": "cron", "alpine": "dcron", "rhel": "cronie"},
     "ps": {"debian": "procps", "alpine": "procps", "rhel": "procps-ng"},
+    "find": {"debian": "findutils", "alpine": "findutils", "rhel": "findutils"},
+    "xargs": {"debian": "findutils", "alpine": "findutils", "rhel": "findutils"},
+    "grep": {"debian": "grep", "alpine": "grep", "rhel": "grep"},
+    "sed": {"debian": "sed", "alpine": "sed", "rhel": "sed"},
+    "awk": {"debian": "gawk", "alpine": "gawk", "rhel": "gawk"},
+    "diff": {"debian": "diffutils", "alpine": "diffutils", "rhel": "diffutils"},
+    "patch": {"debian": "patch", "alpine": "patch", "rhel": "patch"},
+    "ssh": {"debian": "openssh-client", "alpine": "openssh-client", "rhel": "openssh-clients"},
+    "rsync": {"debian": "rsync", "alpine": "rsync", "rhel": "rsync"},
+    "htop": {"debian": "htop", "alpine": "htop", "rhel": "htop"},
 }
 
 

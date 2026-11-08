@@ -721,3 +721,206 @@ def test_reporter_rendering_suggested_package_and_new_diagnostics():
     props = sarif["runs"][0]["results"][0]["properties"]
     assert props["diagnosticKind"] == "permission_denied"
 
+
+# ==============================================================================
+# 11. 环境变量安全注入与工作空间目录挂载专项测试 (v0.9.6)
+# ==============================================================================
+
+def test_validate_env_valid_and_invalid():
+    from opsscript_gate.config import validate_env
+
+    # 合法情况
+    assert validate_env({"FOO": "bar", "_BAZ_123": "val"}) == {"FOO": "bar", "_BAZ_123": "val"}
+    assert validate_env({}) == {}
+
+    # 非字典拒绝
+    with pytest.raises(ValueError, match="env must be a JSON object"):
+        validate_env(["FOO=bar"])
+
+    # 非法 key 命名拒绝
+    with pytest.raises(ValueError, match="Invalid environment variable name '123FOO'"):
+        validate_env({"123FOO": "bar"})
+
+    with pytest.raises(ValueError, match="Invalid environment variable name 'FOO-BAR'"):
+        validate_env({"FOO-BAR": "bar"})
+
+    # 非字符串 value 拒绝
+    with pytest.raises(ValueError, match="Environment variable 'FOO' value must be a string"):
+        validate_env({"FOO": 123})
+
+
+def test_validate_workdir_valid_and_invalid(tmp_path):
+    from opsscript_gate.config import validate_workdir
+
+    # 合法目录
+    sub_dir = tmp_path / "my_workspace"
+    sub_dir.mkdir()
+    assert validate_workdir(str(sub_dir)) == str(sub_dir.resolve())
+
+    # 不存在目录拒绝
+    with pytest.raises(ValueError, match="workdir directory does not exist"):
+        validate_workdir(str(tmp_path / "non_existent"))
+
+    # 指向普通文件拒绝
+    file_path = tmp_path / "regular.sh"
+    file_path.write_text("#!/bin/sh\n")
+    with pytest.raises(ValueError, match="workdir is not a directory"):
+        validate_workdir(str(file_path))
+
+    # 空或非字符串拒绝
+    with pytest.raises(ValueError, match="workdir must be a nonempty path string"):
+        validate_workdir("")
+    with pytest.raises(ValueError, match="workdir must be a nonempty path string"):
+        validate_workdir(123)
+
+
+def test_config_env_and_workdir_support(tmp_path):
+    from opsscript_gate.config import load_config
+    import json
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({
+        "env": {"APP_PORT": "8080", "APP_ENV": "staging"},
+        "workdir": str(ws),
+    }))
+
+    loaded = load_config(str(cfg_file))
+    assert loaded["env"] == {"APP_PORT": "8080", "APP_ENV": "staging"}
+    assert loaded["workdir"] == str(ws.resolve())
+
+
+def test_parse_env_arguments_cli(monkeypatch):
+    from opsscript_gate.cli import parse_env_arguments
+
+    monkeypatch.setenv("EXISTING_VAR", "host_value")
+
+    # KEY=VALUE 格式
+    res = parse_env_arguments(["FOO=123", "BAR=abc=def"])
+    assert res == {"FOO": "123", "BAR": "abc=def"}
+
+    # 单独 KEY（从宿主机环境变量获取）
+    res_host = parse_env_arguments(["EXISTING_VAR", "NON_EXISTING"])
+    assert res_host["EXISTING_VAR"] == "host_value"
+    assert res_host["NON_EXISTING"] == ""
+
+    # 多行输入
+    res_multiline = parse_env_arguments(["A=1\nB=2\n\nC=3"])
+    assert res_multiline == {"A": "1", "B": "2", "C": "3"}
+
+    # 优先级合并：命令行覆盖 base_env
+    res_merge = parse_env_arguments(["A=cli_val", "B=2"], base_env={"A": "base_val", "C": "3"})
+    assert res_merge == {"A": "cli_val", "B": "2", "C": "3"}
+
+    # 非法名称抛错
+    with pytest.raises(ValueError, match="Invalid environment variable name: 'BAD-NAME'"):
+        parse_env_arguments(["BAD-NAME=1"])
+
+
+def test_cli_output_overwrites_protected_case_insensitive(tmp_path):
+    from opsscript_gate.cli import _output_overwrites_protected
+    from pathlib import Path
+
+    file_a = tmp_path / "README.md"
+    file_a.write_text("hello")
+
+    # 同一路径或大小写变体
+    assert _output_overwrites_protected(file_a, [file_a]) is True
+    file_lower = tmp_path / "readme.md"
+    assert _output_overwrites_protected(file_lower, [file_a]) is True
+
+    # 未受保护的文件
+    file_other = tmp_path / "other.txt"
+    assert _output_overwrites_protected(file_other, [file_a]) is False
+
+
+def test_run_matrix_with_env_and_workdir_mock(tmp_path):
+    from opsscript_gate.runner import run_matrix
+    from unittest.mock import MagicMock
+
+    script = tmp_path / "test.sh"
+    script.write_text("#!/bin/sh\necho ok\n")
+
+    ws = tmp_path / "my_workdir"
+    ws.mkdir()
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 0}
+    mock_container.logs.return_value = b"ok\n"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_client.containers.create.return_value = mock_container
+
+    report = run_matrix(
+        script_path=str(script),
+        matrix=["debian:12-slim"],
+        client=mock_client,
+        env={"TEST_KEY": "test_val"},
+        workdir=str(ws),
+    )
+
+    assert report.all_passed is True
+    create_call = mock_client.containers.create.call_args[1]
+
+    # 验证环境变量合并
+    assert create_call["environment"]["TEST_KEY"] == "test_val"
+    assert create_call["environment"]["CI"] == "true"
+    assert create_call["environment"]["DEBIAN_FRONTEND"] == "noninteractive"
+
+    # 验证工作区只读挂载与工作目录配置
+    assert create_call["working_dir"] == "/workspace"
+    found_ws_mount = False
+    for host_vol, cfg in create_call["volumes"].items():
+        if cfg["bind"] == "/workspace":
+            assert cfg["mode"] == "ro"
+            found_ws_mount = True
+    assert found_ws_mount is True
+
+
+def test_cli_dry_run_displays_env_and_workdir(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    import json
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\n")
+
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+
+    code = main([
+        "run",
+        str(script),
+        "--dry-run",
+        "--format", "json",
+        "--env", "VAR_A=1",
+        "--workdir", str(ws),
+    ])
+    assert code == 0
+    captured = capsys.readouterr().out
+    plan = json.loads(captured)
+    assert plan["env"] == {"VAR_A": "1"}
+    assert plan["workdir"] == str(ws.resolve())
+
+
+def test_expanded_remediation_packages():
+    from opsscript_gate.remediation import resolve_package_recommendation
+
+    for cmd, deb_expected, alp_expected in [
+        ("find", "findutils", "findutils"),
+        ("xargs", "findutils", "findutils"),
+        ("grep", "grep", "grep"),
+        ("sed", "sed", "sed"),
+        ("awk", "gawk", "gawk"),
+        ("diff", "diffutils", "diffutils"),
+        ("patch", "patch", "patch"),
+        ("ssh", "openssh-client", "openssh-client"),
+        ("rsync", "rsync", "rsync"),
+        ("htop", "htop", "htop"),
+    ]:
+        pkg_deb, _ = resolve_package_recommendation(cmd, "debian:12-slim")
+        assert pkg_deb == deb_expected, f"Failed for debian {cmd}"
+        pkg_alp, _ = resolve_package_recommendation(cmd, "alpine:3.20")
+        assert pkg_alp == alp_expected, f"Failed for alpine {cmd}"
+
+

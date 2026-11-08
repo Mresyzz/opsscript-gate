@@ -17,7 +17,7 @@ DEFAULTS = {
     "matrix": None, "preset": None, "jobs": None, "timeout": 60,
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
     "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
-    "repeat": 1,
+    "repeat": 1, "env": {}, "workdir": None,
 }
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
@@ -26,6 +26,39 @@ MAX_TIMEOUT_SECONDS = 3600
 MAX_MATRIX_IMAGES = 32
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
+ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def validate_env(value: object) -> dict[str, str]:
+    """Validate and normalize environment variables specified in configuration or CLI."""
+    if not isinstance(value, dict):
+        raise ValueError("env must be a JSON object mapping variable names to string values")
+    normalized: dict[str, str] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not ENV_KEY_RE.fullmatch(k):
+            raise ValueError(
+                f"Invalid environment variable name '{k}'. Must be a valid POSIX identifier (^[A-Za-z_][A-Za-z0-9_]*$)"
+            )
+        if not isinstance(v, str):
+            raise ValueError(
+                f"Environment variable '{k}' value must be a string, got {type(v).__name__}"
+            )
+        normalized[k] = v
+    return normalized
+
+
+def validate_workdir(value: object) -> str:
+    """Validate that the workspace directory exists, is a directory, and is not root."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("workdir must be a nonempty path string")
+    path = Path(value.strip()).resolve()
+    if not path.exists():
+        raise ValueError(f"workdir directory does not exist: {value}")
+    if not path.is_dir():
+        raise ValueError(f"workdir is not a directory: {value}")
+    if path == path.parent:
+        raise ValueError(f"workdir must not be the root directory: {value}")
+    return str(path)
 
 
 def validate_memory_limit(value: object) -> str:
@@ -93,6 +126,10 @@ def load_config(filename: str | None) -> dict:
             validate_packages(value)
         elif key == "mem_limit":
             validate_memory_limit(value)
+        elif key == "env":
+            validate_env(value)
+        elif key == "workdir":
+            validate_workdir(value)
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -126,7 +163,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.5
+      - uses: Mresyzz/opsscript-gate@v0.9.6
         with:
           config: .opsscript-gate.json
 """,

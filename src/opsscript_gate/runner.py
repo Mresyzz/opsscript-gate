@@ -16,7 +16,17 @@ from docker.errors import DockerException, ImageNotFound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from opsscript_gate.config import MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PACKAGE_NAME_RE, validate_memory_limit, validate_packages
+from opsscript_gate.config import (
+    ENV_KEY_RE,
+    MAX_MATRIX_IMAGES,
+    MAX_REPEAT_ATTEMPTS,
+    MAX_TIMEOUT_SECONDS,
+    PACKAGE_NAME_RE,
+    validate_env,
+    validate_memory_limit,
+    validate_packages,
+    validate_workdir,
+)
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
 from opsscript_gate.remediation import generate_remediation_hint, resolve_package_recommendation
 
@@ -804,6 +814,8 @@ def _runtime_option_error(
     pids_limit: int,
     network: str,
     packages: Sequence[str],
+    env: dict[str, str] | None = None,
+    workdir: str | None = None,
 ) -> str | None:
     """Validate execution options shared by the public runner entry points."""
     if isinstance(packages, (str, bytes)):
@@ -823,6 +835,10 @@ def _runtime_option_error(
     try:
         validate_memory_limit(mem_limit)
         validate_packages(list(packages))
+        if env is not None:
+            validate_env(env)
+        if workdir is not None:
+            validate_workdir(workdir)
     except (TypeError, ValueError) as exc:
         return str(exc)
     return None
@@ -859,6 +875,8 @@ def run_on_distro(
     network: str = "bridge",
     packages: Sequence[str] | None = None,
     prepared_script_path: str | None = None,
+    env: dict[str, str] | None = None,
+    workdir: str | None = None,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
@@ -874,7 +892,7 @@ def run_on_distro(
             error_message="packages must be a list of package names",
         )
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir)
     if option_error:
         return SingleResult(
             distro=distro,
@@ -988,10 +1006,20 @@ def run_on_distro(
                 "mode": "ro",
             }
         }
+        if workdir is not None:
+            safe_workdir = normalize_host_path_for_docker(os.path.abspath(workdir))
+            volumes[safe_workdir] = {
+                "bind": "/workspace",
+                "mode": "ro",
+            }
+
         environment = {
             "DEBIAN_FRONTEND": "noninteractive",
             "CI": "true",
         }
+        if env:
+            environment.update(env)
+
         create_kwargs = {
             "image": distro,
             "command": container_command,
@@ -1014,6 +1042,8 @@ def run_on_distro(
             ),
             "detach": True,
         }
+        if workdir is not None:
+            create_kwargs["working_dir"] = "/workspace"
         try:
             container = client.containers.create(**create_kwargs)
         except ImageNotFound:
@@ -1188,6 +1218,8 @@ def run_matrix(
     network: str = "bridge",
     packages: Sequence[str] | None = None,
     repeat: int = 1,
+    env: dict[str, str] | None = None,
+    workdir: str | None = None,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
@@ -1247,7 +1279,7 @@ def run_matrix(
     if isinstance(packages, (str, bytes)):
         raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir)
     if option_error:
         raise ValueError(option_error)
     package_list = validate_packages(package_list)
@@ -1299,6 +1331,8 @@ def run_matrix(
                 network=network,
                 packages=package_list,
                 prepared_script_path=prepared_script,
+                env=env,
+                workdir=workdir,
             ))
 
         if repeat == 1:

@@ -9,7 +9,20 @@ from pathlib import Path
 
 from opsscript_gate import __version__
 from opsscript_gate.discovery import discover_changed_scripts, discover_scripts
-from opsscript_gate.config import DEFAULTS, MAX_MATRIX_IMAGES, MAX_REPEAT_ATTEMPTS, MAX_TIMEOUT_SECONDS, PRESETS, init_project, load_config, validate_memory_limit, validate_packages
+from opsscript_gate.config import (
+    DEFAULTS,
+    ENV_KEY_RE,
+    MAX_MATRIX_IMAGES,
+    MAX_REPEAT_ATTEMPTS,
+    MAX_TIMEOUT_SECONDS,
+    PRESETS,
+    init_project,
+    load_config,
+    validate_env,
+    validate_memory_limit,
+    validate_packages,
+    validate_workdir,
+)
 from opsscript_gate.models import MultiScriptReport, RunReport
 from opsscript_gate.reporter import (
     emit_github_annotations,
@@ -145,6 +158,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional comma-separated packages to install in each container before running (repeatable; requires network=bridge)",
     )
     run_parser.add_argument(
+        "--env",
+        action="append",
+        default=None,
+        help="Environment variable to pass into containers in KEY=VALUE or KEY format (repeatable)",
+    )
+    run_parser.add_argument(
+        "--workdir",
+        type=str,
+        default=None,
+        help="Host directory to mount read-only into /workspace as the container working directory",
+    )
+    run_parser.add_argument(
         "--changed-since",
         help="Only test shell scripts changed between this Git revision and HEAD",
     )
@@ -181,6 +206,33 @@ def parse_packages_argument(packages_raw: list[str] | None) -> list[str]:
     return validate_packages(packages)
 
 
+def parse_env_arguments(
+    env_args: list[str] | None,
+    base_env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Parse repeated --env arguments, resolving KEY=VALUE or KEY from host env."""
+    merged: dict[str, str] = dict(base_env or {})
+    if not env_args:
+        return validate_env(merged) if merged else {}
+    for item in env_args:
+        for entry in item.splitlines():
+            entry = entry.strip()
+            if not entry:
+                continue
+            if "=" in entry:
+                key, val = entry.split("=", 1)
+            else:
+                key = entry
+                val = os.environ.get(key, "")
+            key = key.strip()
+            if not ENV_KEY_RE.fullmatch(key):
+                raise ValueError(
+                    f"Invalid environment variable name: '{key}'. Must be a valid POSIX identifier (^[A-Za-z_][A-Za-z0-9_]*$)"
+                )
+            merged[key] = val
+    return validate_env(merged)
+
+
 def run_checked_matrix(
     args: argparse.Namespace, script_path: str, matrix: list[str]
 ) -> RunReport | None:
@@ -197,6 +249,8 @@ def run_checked_matrix(
             network=args.network,
             packages=args.packages,
             repeat=args.repeat,
+            env=args.env,
+            workdir=args.workdir,
         )
     except DockerDaemonError as err:
         sys.stderr.write(f"Docker Error: {err}\n")
@@ -207,8 +261,11 @@ def run_checked_matrix(
 
 def _output_overwrites_protected(output_path: Path, protected: list[Path]) -> bool:
     """Reject paths that resolve to or share an inode with a protected file."""
-    if output_path in protected:
-        return True
+    for p in protected:
+        if output_path == p:
+            return True
+        if os.name == "nt" and str(output_path).lower() == str(p).lower():
+            return True
     if not output_path.exists():
         return False
     for target in protected:
@@ -316,6 +373,10 @@ def main(argv: list[str] | None = None) -> int:
             args.packages = parse_packages_argument(args.packages)
             if args.packages and args.network == "none":
                 raise ValueError("packages require network=bridge")
+            base_env = config.get("env") if isinstance(config.get("env"), dict) else {}
+            args.env = parse_env_arguments(args.env, base_env=base_env)
+            if args.workdir:
+                args.workdir = validate_workdir(args.workdir)
             if args.matrix is not None and not any(x.strip() for x in args.matrix.split(",")):
                 raise ValueError("matrix must contain at least one image")
         except ValueError as err:
@@ -385,14 +446,18 @@ def main(argv: list[str] | None = None) -> int:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
                     "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
-                    "repeat": args.repeat}
+                    "repeat": args.repeat, "env": args.env, "workdir": args.workdir}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
+            env_preview = f"\nEnv: {', '.join(f'{k}={v}' for k, v in args.env.items())}" if args.env else ""
+            workdir_preview = f"\nWorkdir: {args.workdir}" if args.workdir else ""
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
                 + f"\nImages: {', '.join(matrix)}\nContainer executions: {plan['executions']}"
                 + (f"\nPackages: {', '.join(args.packages)}" if args.packages else "")
+                + env_preview
+                + workdir_preview
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s | Repeat: {args.repeat}"
             )
             return 0 if publish_output(output, args.output) else 1
