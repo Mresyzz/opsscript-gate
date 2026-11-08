@@ -575,3 +575,149 @@ def test_discovery_matches_exclude_directory():
     assert _matches_exclude("tests/foo.sh", ["tests/"]) is True
     assert _matches_exclude("tests/foo.sh", ["./tests/"]) is True
     assert _matches_exclude("other/foo.sh", ["tests"]) is False
+
+
+# ==============================================================================
+# 8. 扩展诊断引擎与生态增强测试（Exit 126、OOM、Amazon/Oracle Linux、Outputs）
+# ==============================================================================
+
+def test_extract_failure_diagnostic_permission_denied():
+    from opsscript_gate.runner import extract_failure_diagnostic
+
+    # Bash 格式: bash: ./install.sh: Permission denied
+    out_bash = "bash: ./install.sh: Permission denied\n"
+    diag_bash = extract_failure_diagnostic(out_bash, exit_code=126, distro="debian:12-slim")
+    assert diag_bash is not None
+    assert diag_bash.kind == "permission_denied"
+    assert diag_bash.command == "./install.sh"
+    assert "permission denied" in diag_bash.message
+    assert "chmod +x" in diag_bash.hint
+
+    # Dash 格式带行号: sh: 1: ./install.sh: Permission denied
+    out_dash = "sh: 1: ./install.sh: Permission denied\n"
+    diag_dash = extract_failure_diagnostic(out_dash, exit_code=126, distro="ubuntu:24.04")
+    assert diag_dash is not None
+    assert diag_dash.kind == "permission_denied"
+    assert diag_dash.command == "./install.sh"
+    assert diag_dash.line == 1
+
+    # Ash 格式: /bin/sh: line 3: ./helper.sh: Permission denied
+    out_ash = "/bin/sh: line 3: ./helper.sh: Permission denied\n"
+    diag_ash = extract_failure_diagnostic(out_ash, exit_code=126, distro="alpine:3.20")
+    assert diag_ash is not None
+    assert diag_ash.kind == "permission_denied"
+    assert diag_ash.command == "./helper.sh"
+    assert diag_ash.line == 3
+
+    # 非 126 退出码不会误报 permission_denied
+    assert extract_failure_diagnostic(out_bash, exit_code=1, distro="debian:12-slim") is None
+
+
+def test_extract_failure_diagnostic_exec_format_error():
+    from opsscript_gate.runner import extract_failure_diagnostic
+
+    # Bash 格式: bash: ./binary: cannot execute binary file: Exec format error
+    out_bash = "bash: ./binary: cannot execute binary file: Exec format error\n"
+    diag = extract_failure_diagnostic(out_bash, exit_code=126, distro="alpine:3.20")
+    assert diag is not None
+    assert diag.kind == "exec_format_error"
+    assert diag.command == "./binary"
+    assert "cannot execute binary" in diag.message
+    assert "incompatible" in diag.hint
+
+    # Dash 格式: sh: 1: ./binary: Exec format error
+    out_dash = "sh: 1: ./binary: Exec format error\n"
+    diag_dash = extract_failure_diagnostic(out_dash, exit_code=126, distro="ubuntu:22.04")
+    assert diag_dash is not None
+    assert diag_dash.kind == "exec_format_error"
+    assert diag_dash.line == 1
+
+
+def test_remediation_amazon_and_oracle_linux():
+    from opsscript_gate.remediation import detect_distro_family, resolve_package_recommendation, generate_remediation_hint
+
+    # 验证 Amazon Linux
+    assert detect_distro_family("amazonlinux:2023") == "rhel"
+    assert detect_distro_family("amazonlinux:2") == "rhel"
+    assert detect_distro_family("public.ecr.aws/amazonlinux/amazonlinux:2023") == "rhel"
+
+    # 验证 Oracle Linux
+    assert detect_distro_family("oraclelinux:9") == "rhel"
+    assert detect_distro_family("ol:8") == "rhel"
+
+    # 验证在 Amazon Linux 下的包推荐
+    pkg, cmd = resolve_package_recommendation("curl", "amazonlinux:2023")
+    assert pkg == "curl"
+    assert cmd == "dnf install -y curl"
+
+    # 验证在 Amazon Linux 误用 apt-get 的提示
+    hint = generate_remediation_hint(distro="amazonlinux:2023", command="apt-get", kind="missing_command")
+    assert "RHEL/Fedora family distributions normally use dnf or yum" in hint
+
+
+def test_run_report_count_properties():
+    from opsscript_gate.models import RunReport, MultiScriptReport, SingleResult, DistroStatus
+
+    res_pass = SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.1)
+    res_fail = SingleResult("alpine:3.20", DistroStatus.FAIL, 127, 0.2)
+    res_timeout = SingleResult("ubuntu:22.04", DistroStatus.TIMED_OUT, None, 1.0)
+
+    report = RunReport([res_pass, res_fail, res_timeout])
+    assert report.total_count == 3
+    assert report.passed_count == 1
+    assert report.failed_count == 2
+    assert report.all_passed is False
+
+    multi = MultiScriptReport({
+        "s1.sh": RunReport([res_pass]),
+        "s2.sh": RunReport([res_fail]),
+    })
+    assert multi.total_scripts_count == 2
+    assert multi.passed_scripts_count == 1
+    assert multi.failed_scripts_count == 1
+    assert multi.all_passed is False
+
+
+def test_reporter_rendering_suggested_package_and_new_diagnostics():
+    from opsscript_gate.models import SingleResult, DistroStatus, FailureDiagnostic, RunReport
+    from opsscript_gate.reporter import format_markdown_compatibility_card, format_terminal_table, format_sarif
+    import json
+
+    diag = FailureDiagnostic(
+        kind="permission_denied",
+        command="./install.sh",
+        message="permission denied: ./install.sh",
+        line=4,
+        hint="Target script lacks executable permissions.",
+        suggested_package=None,
+    )
+    result = SingleResult("alpine:3.20", DistroStatus.FAIL, 126, 0.5, diagnostic=diag)
+    report = RunReport([result])
+
+    card = format_markdown_compatibility_card(report, "deploy.sh")
+    assert "Permission denied: `./install.sh` (line 4)" in card
+
+    # 包含 suggested_package
+    diag_pkg = FailureDiagnostic(
+        kind="missing_command",
+        command="jq",
+        message="command not found: jq",
+        suggested_package="jq",
+        hint="Consider installing jq.",
+    )
+    result_pkg = SingleResult("debian:12-slim", DistroStatus.FAIL, 127, 0.2, diagnostic=diag_pkg)
+    report_pkg = RunReport([result_pkg])
+
+    card_pkg = format_markdown_compatibility_card(report_pkg, "script.sh")
+    assert "Package: `jq`" in card_pkg
+    assert "**Suggested Package:** `jq`" in card_pkg
+
+    # Terminal 报告验证
+    terminal = format_terminal_table(report_pkg)
+    assert "(suggested package: jq)" in terminal
+
+    # SARIF diagnosticKind 验证
+    sarif = json.loads(format_sarif(report, "deploy.sh"))
+    props = sarif["runs"][0]["results"][0]["properties"]
+    assert props["diagnosticKind"] == "permission_denied"
+

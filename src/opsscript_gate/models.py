@@ -114,6 +114,18 @@ class RunReport:
         if self.results:
             self.all_passed = all(r.status == DistroStatus.PASS for r in self.results)
 
+    @property
+    def passed_count(self) -> int:
+        return sum(1 for r in self.results if r.status == DistroStatus.PASS)
+
+    @property
+    def failed_count(self) -> int:
+        return len(self.results) - self.passed_count
+
+    @property
+    def total_count(self) -> int:
+        return len(self.results)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "results": [r.to_dict() for r in self.results],
@@ -132,6 +144,18 @@ class MultiScriptReport:
     def __post_init__(self) -> None:
         if self.reports:
             self.all_passed = all(r.all_passed for r in self.reports.values())
+
+    @property
+    def passed_scripts_count(self) -> int:
+        return sum(1 for r in self.reports.values() if r.all_passed)
+
+    @property
+    def failed_scripts_count(self) -> int:
+        return len(self.reports) - self.passed_scripts_count
+
+    @property
+    def total_scripts_count(self) -> int:
+        return len(self.reports)
 
     def to_dict(self) -> dict[str, Any]:
         return {

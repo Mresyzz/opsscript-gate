@@ -22,38 +22,48 @@ def _normalize_cmd_basename(command: str | None) -> str:
     return norm
 
 
+def detect_distro_family(distro: str | None) -> str:
+    """Identify the distribution family for package manager commands."""
+    if not distro:
+        return "unknown"
+    d = distro.lower()
+    if "alpine" in d:
+        return "alpine"
+    if any(name in d for name in ("debian", "ubuntu", "mint")):
+        return "debian"
+    if any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma", "amazonlinux", "amzn", "oracle", "ol:")):
+        return "rhel"
+    return "unknown"
+
+
 def _match_alpine_apt(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    return "alpine" in distro.lower() and _normalize_cmd_basename(command) in ("apt", "apt-get")
+    return detect_distro_family(distro) == "alpine" and _normalize_cmd_basename(command) in ("apt", "apt-get")
 
 
 def _match_debian_ubuntu_apk(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    d = distro.lower()
-    return ("debian" in d or "ubuntu" in d) and _normalize_cmd_basename(command) == "apk"
+    return detect_distro_family(distro) == "debian" and _normalize_cmd_basename(command) == "apk"
 
 
 def _match_debian_ubuntu_yum(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    d = distro.lower()
-    return ("debian" in d or "ubuntu" in d) and _normalize_cmd_basename(command) in ("yum", "dnf")
+    return detect_distro_family(distro) == "debian" and _normalize_cmd_basename(command) in ("yum", "dnf")
 
 
 def _match_alpine_yum(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    return "alpine" in distro.lower() and _normalize_cmd_basename(command) in ("yum", "dnf")
+    return detect_distro_family(distro) == "alpine" and _normalize_cmd_basename(command) in ("yum", "dnf")
 
 
 def _match_rhel_fedora_apt(distro: str | None, command: str | None, kind: str) -> bool:
     if not distro or not command:
         return False
-    d = distro.lower()
-    is_rhel = any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma"))
-    return is_rhel and _normalize_cmd_basename(command) in ("apt", "apt-get", "apk")
+    return detect_distro_family(distro) == "rhel" and _normalize_cmd_basename(command) in ("apt", "apt-get", "apk")
 
 
 def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bool:
@@ -116,18 +126,16 @@ COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
 }
 
 
-def detect_distro_family(distro: str | None) -> str:
-    """Identify the distribution family for package manager commands."""
-    if not distro:
-        return "unknown"
-    d = distro.lower()
-    if "alpine" in d:
-        return "alpine"
-    if any(name in d for name in ("debian", "ubuntu", "mint")):
-        return "debian"
-    if any(name in d for name in ("fedora", "centos", "rhel", "redhat", "rocky", "alma")):
-        return "rhel"
-    return "unknown"
+def _match_permission_denied(distro: str | None, command: str | None, kind: str) -> bool:
+    return kind == "permission_denied"
+
+
+def _match_exec_format(distro: str | None, command: str | None, kind: str) -> bool:
+    return kind == "exec_format_error"
+
+
+def _match_oom_killed(distro: str | None, command: str | None, kind: str) -> bool:
+    return kind == "oom_killed"
 
 
 def resolve_package_recommendation(
@@ -140,9 +148,7 @@ def resolve_package_recommendation(
     """
     if not command:
         return None, None
-    norm_cmd = command.lower().replace("\\", "/").split("/")[-1]
-    if norm_cmd.endswith(".exe"):
-        norm_cmd = norm_cmd[:-4]
+    norm_cmd = _normalize_cmd_basename(command)
 
     packages = COMMON_COMMAND_PACKAGES.get(norm_cmd)
     if not packages:
@@ -169,6 +175,21 @@ def resolve_package_recommendation(
 
 
 REMEDIATION_RULES: list[RemediationRule] = [
+    RemediationRule(
+        rule_id="permission_denied",
+        matcher=_match_permission_denied,
+        hint="Target script or binary lacks executable permissions; consider running 'chmod +x <file>' or executing via an explicit interpreter (e.g. 'sh script.sh').",
+    ),
+    RemediationRule(
+        rule_id="exec_format_error",
+        matcher=_match_exec_format,
+        hint="Binary format is incompatible with the container architecture or C runtime (e.g. glibc binary on Alpine musl); consider using native packages or statically linked binaries.",
+    ),
+    RemediationRule(
+        rule_id="oom_killed",
+        matcher=_match_oom_killed,
+        hint="Container exceeded configured memory limit and was killed by OOM killer; consider optimizing memory usage or increasing --mem-limit.",
+    ),
     RemediationRule(
         rule_id="alpine_apt",
         matcher=_match_alpine_apt,
