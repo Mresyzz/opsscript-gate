@@ -48,7 +48,7 @@ apt-get --version
 Run it locally with `opsscript-gate run ./install.sh`, or add the following step to CI:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.9.4
+- uses: Mresyzz/opsscript-gate@v0.9.6
   with:
     script-path: install.sh
 ```
@@ -57,12 +57,9 @@ The result identifies the failing distribution, exit code, line, missing command
 
 ---
 
-## Current release: v0.9.4
+## Current release: v0.9.6
 
-The current release includes a project config file, a dry-run plan, presets, exclusions,
-saved reports, changed-script selection for pull requests, and repeat runs for detecting
-flaky runtime behavior. The project controls
-were introduced in v0.5.0; projects on v0.4.1 and earlier do not include them.
+The current release includes safe environment variable passing (`--env`), host workspace context read-only mounting (`--workdir`), expanded package recommendations for standard Linux tools, structured diagnostic properties in SARIF, and composite action outputs.
 
 ```bash
 opsscript-gate init
@@ -71,6 +68,8 @@ opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
 # Repeat each distro three times when diagnosing intermittent failures
 opsscript-gate run ./install.sh --repeat 3
+# Pass environment variables and mount repository workspace read-only
+opsscript-gate run ./install.sh --env APP_ENV=staging --workdir .
 ```
 
 `init` creates `.opsscript-gate.json` and a GitHub Actions workflow without replacing
@@ -115,7 +114,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.4
+      - uses: Mresyzz/opsscript-gate@v0.9.6
 ```
 
 This zero-configuration form discovers shell scripts in the repository. Use
@@ -126,7 +125,7 @@ repository has a single installer. For self-hosted model installers, see the
 Or test a specific script with custom execution modes:
 
 ```yaml
-      - uses: Mresyzz/opsscript-gate@v0.9.4
+      - uses: Mresyzz/opsscript-gate@v0.9.6
         with:
           script-path: scripts/install.sh
           shell: auto
@@ -160,7 +159,7 @@ unrelated scripts:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: Mresyzz/opsscript-gate@v0.9.4
+      - uses: Mresyzz/opsscript-gate@v0.9.6
         with:
           changed-since: ${{ github.event.pull_request.base.sha }}
           preset: minimal
@@ -251,7 +250,7 @@ Use `sarif` when the result should appear in GitHub Code Scanning or another
 SARIF-compatible viewer. Upload it explicitly with the official upload action:
 
 ```yaml
-- uses: Mresyzz/opsscript-gate@v0.9.4
+- uses: Mresyzz/opsscript-gate@v0.9.6
   with:
     script-path: scripts/install.sh
     format: sarif

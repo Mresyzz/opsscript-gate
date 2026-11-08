@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.6] - 2026-11-08
+
+### Added
+- Added safe container environment variable injection via CLI `--env` and configuration `"env": {...}`, with strict POSIX variable name validation (`^[A-Za-z_][A-Za-z0-9_]*$`).
+- Added host workspace context read-only mounting via CLI `--workdir` and configuration `"workdir": "..."`, automatically setting `/workspace` as the container working directory while strictly preserving host immutability (`mode: "ro"`).
+- Added `env` and `workdir` inputs to the GitHub Composite Action with transparent argument forwarding.
+- Expanded `COMMON_COMMAND_PACKAGES` to provide cross-distro package remediation for standard operations tools (`find`, `xargs`, `grep`, `sed`, `awk`, `diff`, `patch`, `ssh`, `rsync`, `htop`).
+- Added Windows case-insensitive path collision protection in `_output_overwrites_protected` to prevent accidental overwrites of critical project files (e.g. `README.md`).
+
 ## [0.9.5] - 2026-11-08
 
 ### Added

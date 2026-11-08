@@ -17,9 +17,9 @@ Bash 依赖、包管理器假设和交互式阻塞。它与 ShellCheck 互补。
 
 也可以直接打开 [OpsScript Gate 在线演示](https://mresyzz.github.io/opsscript-gate/)，先查看 ShellCheck 与运行时验证的差异，再复制 workflow 到自己的仓库。
 
-## 当前版本 v0.9.4
+## 当前版本 v0.9.6
 
-v0.9.4 是当前已发布版本；如果你要从源码验证当前分支，也可以执行：
+v0.9.6 是当前已发布版本；如果你要从源码验证当前分支，也可以执行：
 
 ```bash
 pip install -e .
@@ -33,9 +33,11 @@ opsscript-gate init
 opsscript-gate doctor
 opsscript-gate run --dry-run
 opsscript-gate run --format json --output reports/compatibility.json
+# 传递环境变量并以只读方式挂载本地工作空间
+opsscript-gate run ./install.sh --env APP_ENV=staging --workdir .
 ```
 
-`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.9.4`。
+`init` 生成配置和 GitHub 工作流，不覆盖已有文件。工作流引用 `v0.9.6`。
 预览不需要 Docker；真实运行需要 Python 3.10+
 和可访问的 Linux Docker 引擎。
 `opsscript-gate doctor` 可以在真实运行前检查 Python 和 Docker。
@@ -74,7 +76,7 @@ Docker daemon 和可选的项目配置。
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0
-- uses: Mresyzz/opsscript-gate@v0.9.4
+- uses: Mresyzz/opsscript-gate@v0.9.6
   with:
     changed-since: ${{ github.event.pull_request.base.sha }}
     preset: minimal
