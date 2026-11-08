@@ -89,7 +89,7 @@ def _match_interpreter(distro: str | None, command: str | None, kind: str) -> bo
         return True
     if command and (command.startswith("/bin/") or command.startswith("/usr/bin/")):
         base = _normalize_cmd_basename(command)
-        if base in ("bash", "sh", "zsh", "python", "python3", "perl"):
+        if base in ("bash", "sh", "dash", "ash", "zsh", "python", "python3", "perl"):
             return True
     return False
 
@@ -133,6 +133,8 @@ COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
     "ssh": {"debian": "openssh-client", "alpine": "openssh-client", "rhel": "openssh-clients"},
     "rsync": {"debian": "rsync", "alpine": "rsync", "rhel": "rsync"},
     "htop": {"debian": "htop", "alpine": "htop", "rhel": "htop"},
+    "dash": {"debian": "dash", "alpine": "dash", "rhel": "dash"},
+    "ash": {"debian": "ash", "alpine": "busybox", "rhel": "busybox"},
 }
 
 

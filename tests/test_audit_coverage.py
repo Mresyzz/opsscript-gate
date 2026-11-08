@@ -927,3 +927,152 @@ def test_expanded_remediation_packages():
         assert pkg_alp == alp_expected, f"Failed for alpine {cmd}"
 
 
+# ==============================================================================
+# 12. Fail-Fast 快速失败与 dash / ash 原生解释器专项测试 (v0.9.7)
+# ==============================================================================
+
+def test_shebang_dash_and_ash_support(tmp_path):
+    from opsscript_gate.runner import inspect_shebang, ShebangStatus, _resolve_shell_command, ShellMode
+
+    # 1. 直接 /bin/dash 与 /usr/bin/dash
+    dash_script = tmp_path / "dash_script"
+    dash_script.write_text("#!/bin/dash\necho hello\n")
+    res_dash = inspect_shebang(str(dash_script))
+    assert res_dash.status == ShebangStatus.RECOGNIZED
+    assert res_dash.interpreter == "dash"
+    assert res_dash.command_key == "/bin/dash"
+    cmd_dash, err_dash = _resolve_shell_command(ShellMode.SHEBANG, res_dash)
+    assert err_dash is None
+    assert "/bin/dash /tmp/target_script.sh </dev/null" in cmd_dash[2]
+
+    # 2. 直接 /bin/ash 与 /usr/bin/env ash
+    ash_script = tmp_path / "ash_script"
+    ash_script.write_text("#!/usr/bin/env ash\necho hello\n")
+    res_ash = inspect_shebang(str(ash_script))
+    assert res_ash.status == ShebangStatus.RECOGNIZED
+    assert res_ash.interpreter == "ash"
+    assert res_ash.command_key == "/usr/bin/env ash"
+    cmd_ash, err_ash = _resolve_shell_command(ShellMode.SHEBANG, res_ash)
+    assert err_ash is None
+    assert "/usr/bin/env ash /tmp/target_script.sh </dev/null" in cmd_ash[2]
+
+
+def test_workdir_relative_script_mount_and_command(tmp_path):
+    from opsscript_gate.runner import run_on_distro
+    from unittest.mock import MagicMock
+
+    ws = tmp_path / "repo_root"
+    ws.mkdir()
+    sub_dir = ws / "scripts" / "nested"
+    sub_dir.mkdir(parents=True)
+    script_file = sub_dir / "setup.sh"
+    script_file.write_text("#!/bin/sh\necho test\n")
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 0}
+    mock_container.logs.return_value = b"test\n"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_client.containers.create.return_value = mock_container
+
+    res = run_on_distro(
+        client=mock_client,
+        script_path=str(script_file),
+        distro="debian:12-slim",
+        workdir=str(ws),
+    )
+    assert res.status.value == "PASS"
+
+    create_call = mock_client.containers.create.call_args[1]
+    # 容器命令中的脚本路径应自动映射至 /workspace/scripts/nested/setup.sh
+    cmd_str = create_call["command"][2]
+    assert "/workspace/scripts/nested/setup.sh" in cmd_str
+
+    # 验证 volume bind 路径亦为 /workspace/scripts/nested/setup.sh
+    bind_targets = [v["bind"] for v in create_call["volumes"].values()]
+    assert "/workspace" in bind_targets
+    assert "/workspace/scripts/nested/setup.sh" in bind_targets
+
+
+def test_fail_fast_multi_script(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    from unittest.mock import patch
+    from opsscript_gate.models import RunReport, SingleResult, DistroStatus
+
+    s1 = tmp_path / "a_fail.sh"
+    s1.write_text("#!/bin/sh\nexit 1\n")
+    s2 = tmp_path / "b_pass.sh"
+    s2.write_text("#!/bin/sh\nexit 0\n")
+
+    executed_scripts = []
+
+    def fake_run_checked_matrix(args, script_path, matrix):
+        executed_scripts.append(script_path)
+        if "a_fail" in script_path:
+            return RunReport([SingleResult("debian:12-slim", DistroStatus.FAIL, 1, 0.1)])
+        return RunReport([SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.1)])
+
+    with patch("opsscript_gate.cli.discover_scripts", return_value=[str(s1), str(s2)]):
+        with patch("opsscript_gate.cli.run_checked_matrix", side_effect=fake_run_checked_matrix):
+            # 开启 fail-fast：第 1 个脚本失败后，第 2 个脚本不应被执行
+            code = main(["run", "--fail-fast"])
+            assert code == 1
+            assert len(executed_scripts) == 1
+            assert executed_scripts[0] == str(s1)
+
+
+def test_fail_fast_matrix_repeat(tmp_path):
+    from opsscript_gate.runner import run_matrix
+    from unittest.mock import MagicMock
+
+    script = tmp_path / "test.sh"
+    script.write_text("#!/bin/sh\n")
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    # 模拟第一次执行就失败
+    mock_container.wait.return_value = {"StatusCode": 1}
+    mock_container.logs.return_value = b"failed\n"
+    mock_container.attrs = {"State": {"ExitCode": 1}}
+    mock_client.containers.create.return_value = mock_container
+
+    # 设置 repeat=5, jobs=1, fail_fast=True
+    report = run_matrix(
+        script_path=str(script),
+        matrix=["debian:12-slim"],
+        client=mock_client,
+        repeat=5,
+        jobs=1,
+        fail_fast=True,
+    )
+    assert report.all_passed is False
+    # fail_fast 生效：containers.create 仅被调用 1 次，而非 5 次
+    assert mock_client.containers.create.call_count == 1
+
+
+def test_config_fail_fast_setting(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    import json
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\n")
+
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({
+        "fail_fast": True,
+    }))
+
+    code = main([
+        "run",
+        str(script),
+        "--config", str(cfg_file),
+        "--dry-run",
+        "--format", "json",
+    ])
+    assert code == 0
+    captured = capsys.readouterr().out
+    plan = json.loads(captured)
+    assert plan["fail_fast"] is True
+
+
+

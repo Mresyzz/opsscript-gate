@@ -55,6 +55,12 @@ SUPPORTED_SHEBANG_COMMANDS: dict[str, list[str]] = {
     "/usr/bin/bash": ["/bin/sh", "-c", "/usr/bin/bash /tmp/target_script.sh </dev/null"],
     "/usr/bin/env sh": ["/bin/sh", "-c", "/usr/bin/env sh /tmp/target_script.sh </dev/null"],
     "/usr/bin/env bash": ["/bin/sh", "-c", "/usr/bin/env bash /tmp/target_script.sh </dev/null"],
+    "/bin/dash": ["/bin/sh", "-c", "/bin/dash /tmp/target_script.sh </dev/null"],
+    "/usr/bin/dash": ["/bin/sh", "-c", "/usr/bin/dash /tmp/target_script.sh </dev/null"],
+    "/usr/bin/env dash": ["/bin/sh", "-c", "/usr/bin/env dash /tmp/target_script.sh </dev/null"],
+    "/bin/ash": ["/bin/sh", "-c", "/bin/ash /tmp/target_script.sh </dev/null"],
+    "/usr/bin/ash": ["/bin/sh", "-c", "/usr/bin/ash /tmp/target_script.sh </dev/null"],
+    "/usr/bin/env ash": ["/bin/sh", "-c", "/usr/bin/env ash /tmp/target_script.sh </dev/null"],
 }
 
 DEFAULT_POSIX_COMMAND: list[str] = ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
@@ -488,11 +494,25 @@ def inspect_shebang(script_path: str) -> ShebangParseResult:
                     interpreter="bash",
                     raw_shebang=raw_shebang,
                 )
+            elif sub_cmd == "dash":
+                return ShebangParseResult(
+                    status=ShebangStatus.RECOGNIZED,
+                    command_key="/usr/bin/env dash",
+                    interpreter="dash",
+                    raw_shebang=raw_shebang,
+                )
+            elif sub_cmd == "ash":
+                return ShebangParseResult(
+                    status=ShebangStatus.RECOGNIZED,
+                    command_key="/usr/bin/env ash",
+                    interpreter="ash",
+                    raw_shebang=raw_shebang,
+                )
             else:
                 return ShebangParseResult(
                     status=ShebangStatus.UNSUPPORTED,
                     raw_shebang=raw_shebang,
-                    error_message=f"Unsupported shebang interpreter: '{clean_shebang}' (supported: sh, bash)",
+                    error_message=f"Unsupported shebang interpreter: '{clean_shebang}' (supported: sh, bash, dash, ash)",
                 )
         else:
             # Reject complex env forms (e.g. env -S bash) or additional arguments
@@ -502,7 +522,7 @@ def inspect_shebang(script_path: str) -> ShebangParseResult:
                 error_message=f"Unsupported complex env shebang form: '{clean_shebang}'",
             )
 
-    # Direct interpreters (e.g. /bin/sh, /bin/bash, /usr/bin/sh, /usr/bin/bash)
+    # Direct interpreters (e.g. /bin/sh, /bin/bash, /bin/dash, /bin/ash)
     if cmd in ("/bin/sh", "/usr/bin/sh"):
         if len(tokens) > 1:
             return ShebangParseResult(
@@ -529,11 +549,37 @@ def inspect_shebang(script_path: str) -> ShebangParseResult:
             interpreter="bash",
             raw_shebang=raw_shebang,
         )
+    elif cmd in ("/bin/dash", "/usr/bin/dash"):
+        if len(tokens) > 1:
+            return ShebangParseResult(
+                status=ShebangStatus.UNSUPPORTED,
+                raw_shebang=raw_shebang,
+                error_message=f"Unsupported shebang arguments in '{clean_shebang}'",
+            )
+        return ShebangParseResult(
+            status=ShebangStatus.RECOGNIZED,
+            command_key=cmd,
+            interpreter="dash",
+            raw_shebang=raw_shebang,
+        )
+    elif cmd in ("/bin/ash", "/usr/bin/ash"):
+        if len(tokens) > 1:
+            return ShebangParseResult(
+                status=ShebangStatus.UNSUPPORTED,
+                raw_shebang=raw_shebang,
+                error_message=f"Unsupported shebang arguments in '{clean_shebang}'",
+            )
+        return ShebangParseResult(
+            status=ShebangStatus.RECOGNIZED,
+            command_key=cmd,
+            interpreter="ash",
+            raw_shebang=raw_shebang,
+        )
     else:
         return ShebangParseResult(
             status=ShebangStatus.UNSUPPORTED,
             raw_shebang=raw_shebang,
-            error_message=f"Unsupported shebang interpreter: '{clean_shebang}' (supported: sh, bash)",
+            error_message=f"Unsupported shebang interpreter: '{clean_shebang}' (supported: sh, bash, dash, ash)",
         )
 
 
@@ -987,6 +1033,29 @@ def run_on_distro(
 
     try:
         safe_mount_src = normalize_host_path_for_docker(mount_src)
+        target_bind_path = "/tmp/target_script.sh"
+        volumes = {}
+        if workdir is not None:
+            abs_workdir = os.path.abspath(workdir)
+            safe_workdir = normalize_host_path_for_docker(abs_workdir)
+            volumes[safe_workdir] = {
+                "bind": "/workspace",
+                "mode": "ro",
+            }
+            try:
+                rel_script = os.path.relpath(abs_script, abs_workdir)
+            except ValueError:
+                rel_script = None
+            if rel_script is not None and not rel_script.startswith("..") and not os.path.isabs(rel_script):
+                posix_rel = rel_script.replace("\\", "/")
+                target_bind_path = f"/workspace/{posix_rel}"
+                command = [part.replace("/tmp/target_script.sh", target_bind_path) for part in command]
+
+        volumes[safe_mount_src] = {
+            "bind": target_bind_path,
+            "mode": "ro",
+        }
+
         try:
             container_command = _wrap_with_package_setup(command, package_list)
         except (TypeError, ValueError) as exc:
@@ -998,20 +1067,6 @@ def run_on_distro(
                 output_snippet="",
                 error_message=str(exc),
             )
-
-        # Security: Strict unprivileged options and read-only mount
-        volumes = {
-            safe_mount_src: {
-                "bind": "/tmp/target_script.sh",
-                "mode": "ro",
-            }
-        }
-        if workdir is not None:
-            safe_workdir = normalize_host_path_for_docker(os.path.abspath(workdir))
-            volumes[safe_workdir] = {
-                "bind": "/workspace",
-                "mode": "ro",
-            }
 
         environment = {
             "DEBIAN_FRONTEND": "noninteractive",
@@ -1220,6 +1275,7 @@ def run_matrix(
     repeat: int = 1,
     env: dict[str, str] | None = None,
     workdir: str | None = None,
+    fail_fast: bool = False,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
@@ -1319,7 +1375,7 @@ def run_matrix(
     def _worker(index: int, distro_name: str) -> tuple[int, SingleResult]:
         attempts: list[SingleResult] = []
         for _ in range(repeat):
-            attempts.append(run_on_distro(
+            res_attempt = run_on_distro(
                 client=docker_client,
                 script_path=script_path,
                 distro=distro_name,
@@ -1333,9 +1389,12 @@ def run_matrix(
                 prepared_script_path=prepared_script,
                 env=env,
                 workdir=workdir,
-            ))
+            )
+            attempts.append(res_attempt)
+            if fail_fast and res_attempt.status != DistroStatus.PASS:
+                break
 
-        if repeat == 1:
+        if len(attempts) == 1:
             return index, attempts[0]
 
         passed = sum(result.status == DistroStatus.PASS for result in attempts)
@@ -1380,6 +1439,8 @@ def run_matrix(
             for idx, distro_name in enumerate(distro_list):
                 _, res = _worker(idx, distro_name)
                 results[idx] = res
+                if fail_fast and res.status != DistroStatus.PASS:
+                    break
         else:
             with ThreadPoolExecutor(max_workers=effective_jobs) as executor:
                 futures = [
@@ -1389,6 +1450,10 @@ def run_matrix(
                 for fut in as_completed(futures):
                     idx, res = fut.result()
                     results[idx] = res
+                    if fail_fast and res.status != DistroStatus.PASS:
+                        for remaining in futures:
+                            remaining.cancel()
+                        break
     finally:
         # Clean up temporary CRLF normalized file exactly once after all matrix workers complete
         if shared_temp_file is not None:
@@ -1399,10 +1464,11 @@ def run_matrix(
                 pass
 
     total_duration = time.perf_counter() - start_total
-    all_passed = all(r.status == DistroStatus.PASS for r in results) if results else True
+    actual_results = [r for r in results if r is not None]
+    all_passed = all(r.status == DistroStatus.PASS for r in actual_results) if actual_results else True
 
     return RunReport(
-        results=results,
+        results=actual_results,
         total_duration=total_duration,
         all_passed=all_passed,
     )

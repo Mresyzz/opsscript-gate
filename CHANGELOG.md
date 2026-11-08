@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.7] - 2026-11-08
+
+### Added
+- Added fast-fail support via CLI `-x` / `--fail-fast`, configuration `"fail_fast": true`, and composite action input `fail-fast` to stop immediately on the first failed check or script.
+- Added native shebang parsing and runtime execution support for POSIX lightweight shell interpreters `dash` and `ash` (`/bin/dash`, `/usr/bin/dash`, `/usr/bin/env dash`, `/bin/ash`, `/usr/bin/ash`, `/usr/bin/env ash`).
+- Enhanced `--workdir` integration to automatically map workspace-relative script paths and retain script `$0` identity for scripts that compute local paths via `dirname "$0"`.
+- Added cross-distro package remediation recommendations for `dash` and `ash` missing interpreters across Debian and Alpine.
+
 ## [0.9.6] - 2026-11-08
 
 ### Added
