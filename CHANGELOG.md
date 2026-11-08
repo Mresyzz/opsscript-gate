@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.8] - 2026-11-08
+
+### Fixed
+- Fixed script path and parameter splitting when workspace-relative paths contain spaces: commands are now safely built with `shlex.quote()` on all script targets and argument tokens.
+
+### Added
+- Added script positional arguments support via CLI `--args`, configuration `"args": [...]`, and Composite Action input `args`.
+- Added quiet summary mode via CLI `-q` / `--quiet`, configuration `"quiet": true`, and Composite Action input `quiet` to print a compact single-line result when all checks pass.
+- Added dedicated remediation hints for Alpine missing `dash` and Debian/Ubuntu missing `ash`.
+
 ## [0.9.7] - 2026-11-08
 
 ### Added

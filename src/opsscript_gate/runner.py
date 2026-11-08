@@ -22,6 +22,7 @@ from opsscript_gate.config import (
     MAX_REPEAT_ATTEMPTS,
     MAX_TIMEOUT_SECONDS,
     PACKAGE_NAME_RE,
+    validate_args,
     validate_env,
     validate_memory_limit,
     validate_packages,
@@ -64,6 +65,40 @@ SUPPORTED_SHEBANG_COMMANDS: dict[str, list[str]] = {
 }
 
 DEFAULT_POSIX_COMMAND: list[str] = ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+
+def build_container_execution_command(
+    base_command: Sequence[str],
+    script_target: str,
+    args: Sequence[str] | None = None,
+) -> list[str]:
+    """
+    Construct safe container execution command replacing default target script
+    with properly shell-quoted script_target and optional positional arguments.
+    """
+    if not base_command:
+        return ["/bin/sh", "-c", f"/bin/sh {shlex.quote(script_target)} </dev/null"]
+
+    quoted_target = shlex.quote(script_target)
+    quoted_args = " " + " ".join(shlex.quote(a) for a in args) if args else ""
+
+    cmd_list = list(base_command)
+    if len(cmd_list) >= 3 and cmd_list[0] == "/bin/sh" and cmd_list[1] == "-c":
+        shell_str = cmd_list[2]
+        if " /tmp/target_script.sh </dev/null" in shell_str:
+            prefix = shell_str.split(" /tmp/target_script.sh </dev/null")[0]
+            cmd_list[2] = f"{prefix} {quoted_target}{quoted_args} </dev/null"
+            return cmd_list
+        elif "/tmp/target_script.sh" in shell_str:
+            prefix = shell_str.split("/tmp/target_script.sh")[0].rstrip()
+            suffix = shell_str.split("/tmp/target_script.sh", 1)[1]
+            if suffix.strip() == "</dev/null":
+                cmd_list[2] = f"{prefix} {quoted_target}{quoted_args} </dev/null"
+            else:
+                cmd_list[2] = f"{prefix} {quoted_target}{quoted_args}{suffix}"
+            return cmd_list
+
+    return [part.replace("/tmp/target_script.sh", quoted_target) for part in cmd_list]
 
 # Regular expression matching common ANSI escape sequences:
 # 1. CSI (Control Sequence Introducer): ESC [ ... [@-~]
@@ -862,6 +897,7 @@ def _runtime_option_error(
     packages: Sequence[str],
     env: dict[str, str] | None = None,
     workdir: str | None = None,
+    args: Sequence[str] | None = None,
 ) -> str | None:
     """Validate execution options shared by the public runner entry points."""
     if isinstance(packages, (str, bytes)):
@@ -885,6 +921,8 @@ def _runtime_option_error(
             validate_env(env)
         if workdir is not None:
             validate_workdir(workdir)
+        if args is not None:
+            validate_args(args)
     except (TypeError, ValueError) as exc:
         return str(exc)
     return None
@@ -923,6 +961,7 @@ def run_on_distro(
     prepared_script_path: str | None = None,
     env: dict[str, str] | None = None,
     workdir: str | None = None,
+    args: Sequence[str] | None = None,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
@@ -938,7 +977,7 @@ def run_on_distro(
             error_message="packages must be a list of package names",
         )
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args)
     if option_error:
         return SingleResult(
             distro=distro,
@@ -948,6 +987,7 @@ def run_on_distro(
             output_snippet="",
             error_message=option_error,
         )
+    parsed_args = validate_args(args) if args else []
     try:
         poll_interval_value = float(poll_interval)
     except (TypeError, ValueError, OverflowError):
@@ -1049,7 +1089,10 @@ def run_on_distro(
             if rel_script is not None and not rel_script.startswith("..") and not os.path.isabs(rel_script):
                 posix_rel = rel_script.replace("\\", "/")
                 target_bind_path = f"/workspace/{posix_rel}"
-                command = [part.replace("/tmp/target_script.sh", target_bind_path) for part in command]
+
+        command = build_container_execution_command(
+            command, target_bind_path, args=parsed_args
+        )
 
         volumes[safe_mount_src] = {
             "bind": target_bind_path,
@@ -1276,6 +1319,7 @@ def run_matrix(
     env: dict[str, str] | None = None,
     workdir: str | None = None,
     fail_fast: bool = False,
+    args: Sequence[str] | None = None,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
@@ -1335,10 +1379,11 @@ def run_matrix(
     if isinstance(packages, (str, bytes)):
         raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args)
     if option_error:
         raise ValueError(option_error)
     package_list = validate_packages(package_list)
+    parsed_args = validate_args(args) if args else []
     mem_limit = validate_memory_limit(mem_limit)
     if package_list and network == "none":
         raise ValueError("Package setup requires network mode 'bridge'")
@@ -1389,6 +1434,7 @@ def run_matrix(
                 prepared_script_path=prepared_script,
                 env=env,
                 workdir=workdir,
+                args=parsed_args,
             )
             attempts.append(res_attempt)
             if fail_fast and res_attempt.status != DistroStatus.PASS:

@@ -1075,4 +1075,214 @@ def test_config_fail_fast_setting(tmp_path, capsys):
     assert plan["fail_fast"] is True
 
 
+def test_validate_args_valid_and_invalid():
+    from opsscript_gate.config import validate_args, MAX_ARGS_COUNT, MAX_ARG_LENGTH
+    import pytest
+
+    # 1. 字符串正常拆分（带空格与引号）
+    res1 = validate_args("staging --dry-run 'cluster prod' \"user 1\"")
+    assert res1 == ["staging", "--dry-run", "cluster prod", "user 1"]
+
+    # 2. 列表正常透传
+    res2 = validate_args(["foo", "bar", "--flag=value"])
+    assert res2 == ["foo", "bar", "--flag=value"]
+
+    # 3. 空字符串与空列表
+    assert validate_args("") == []
+    assert validate_args("   ") == []
+    assert validate_args([]) == []
+
+    # 4. 非法类型
+    with pytest.raises(ValueError, match="args must be a string or a list"):
+        validate_args(123)
+    with pytest.raises(ValueError, match="args list must contain only strings"):
+        validate_args(["valid", 123])
+
+    # 5. 引号语法未闭合
+    with pytest.raises(ValueError, match="Invalid args string syntax"):
+        validate_args("unclosed 'quote")
+
+    # 6. 超过最大参数数量
+    with pytest.raises(ValueError, match=f"args must not contain more than {MAX_ARGS_COUNT}"):
+        validate_args(["arg"] * (MAX_ARGS_COUNT + 1))
+
+    # 7. 单参数超长
+    with pytest.raises(ValueError, match="exceeds maximum length"):
+        validate_args(["a" * (MAX_ARG_LENGTH + 1)])
+
+
+def test_config_args_and_quiet_setting(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    from opsscript_gate.config import load_config
+    import json
+    import pytest
+
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({
+        "args": ["deploy", "--env=prod"],
+        "quiet": True,
+    }))
+
+    cfg = load_config(str(cfg_file))
+    assert cfg["args"] == ["deploy", "--env=prod"]
+    assert cfg["quiet"] is True
+
+    # 测试字符串格式的 args 在 load_config 中被规范化
+    cfg_file2 = tmp_path / "config2.json"
+    cfg_file2.write_text(json.dumps({
+        "args": "staging --retry 3",
+        "quiet": False,
+    }))
+    cfg2 = load_config(str(cfg_file2))
+    assert cfg2["args"] == ["staging", "--retry", "3"]
+    assert cfg2["quiet"] is False
+
+    # 测试非法 quiet
+    cfg_file_bad = tmp_path / "bad.json"
+    cfg_file_bad.write_text(json.dumps({"quiet": "not_bool"}))
+    with pytest.raises(ValueError, match="quiet must be a boolean"):
+        load_config(str(cfg_file_bad))
+
+
+def test_remediation_dash_and_ash_specific_rules():
+    from opsscript_gate.remediation import generate_remediation_hint
+
+    # Alpine 缺少 dash
+    hint_alpine_dash = generate_remediation_hint(
+        distro="alpine:3.20",
+        command="/bin/dash",
+        kind="missing_command",
+    )
+    assert hint_alpine_dash is not None
+    assert "busybox ash" in hint_alpine_dash
+    assert "dash" in hint_alpine_dash
+
+    # Debian 缺少 ash
+    hint_debian_ash = generate_remediation_hint(
+        distro="debian:12-slim",
+        command="/bin/ash",
+        kind="missing_command",
+    )
+    assert hint_debian_ash is not None
+    assert "dash as /bin/sh" in hint_debian_ash
+    assert "ash" in hint_debian_ash
+
+
+def test_build_container_execution_command():
+    from opsscript_gate.runner import (
+        build_container_execution_command,
+        SUPPORTED_SHEBANG_COMMANDS,
+        DEFAULT_POSIX_COMMAND,
+    )
+
+    # 1. 默认 posix 命令，无参数
+    cmd1 = build_container_execution_command(DEFAULT_POSIX_COMMAND, "/tmp/target_script.sh")
+    assert cmd1 == ["/bin/sh", "-c", "/bin/sh /tmp/target_script.sh </dev/null"]
+
+    # 2. 带空格的目标路径与参数转义
+    cmd2 = build_container_execution_command(
+        DEFAULT_POSIX_COMMAND,
+        "/workspace/my scripts/deploy.sh",
+        args=["staging", "cluster prod", "--retries=3"],
+    )
+    assert cmd2[0] == "/bin/sh"
+    assert cmd2[1] == "-c"
+    assert "/bin/sh '/workspace/my scripts/deploy.sh' staging 'cluster prod' --retries=3 </dev/null" in cmd2[2]
+
+    # 3. 支持 shebang bash 模板
+    bash_cmd = SUPPORTED_SHEBANG_COMMANDS["/bin/bash"]
+    cmd3 = build_container_execution_command(
+        bash_cmd,
+        "/workspace/test.sh",
+        args=["arg1"],
+    )
+    assert "/bin/bash /workspace/test.sh arg1 </dev/null" in cmd3[2]
+
+
+def test_run_matrix_with_args_and_spaces_in_path(tmp_path):
+    from opsscript_gate.runner import run_matrix
+    from unittest.mock import MagicMock
+
+    workdir = tmp_path / "my workspace"
+    workdir.mkdir()
+    sub_dir = workdir / "deploy scripts"
+    sub_dir.mkdir()
+    script = sub_dir / "my target.sh"
+    script.write_text("#!/bin/sh\n")
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 0}
+    mock_container.logs.return_value = b"success\n"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_client.containers.create.return_value = mock_container
+
+    report = run_matrix(
+        script_path=str(script),
+        matrix=["debian:12-slim"],
+        client=mock_client,
+        workdir=str(workdir),
+        args=["cluster alpha", "--dry-run"],
+    )
+    assert report.all_passed is True
+    # 验证容器创建参数中的 command 经过正确转义与参数注入
+    call_kwargs = mock_client.containers.create.call_args.kwargs
+    container_cmd = call_kwargs["command"]
+    assert container_cmd[0] == "/bin/sh"
+    assert container_cmd[1] == "-c"
+    # command[2] 中应包含转义后的脚本路径和参数
+    full_cmd_str = container_cmd[2]
+    assert "'/workspace/deploy scripts/my target.sh'" in full_cmd_str
+    assert "'cluster alpha'" in full_cmd_str
+    assert "--dry-run" in full_cmd_str
+
+
+def test_cli_dry_run_and_quiet_mode(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    from opsscript_gate.models import RunReport, SingleResult, DistroStatus
+    from unittest.mock import patch
+    import json
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+
+    # 1. dry-run 下展示 Args 与 Quiet
+    code_dry = main([
+        "run",
+        str(script),
+        "--args", "staging 'prod 1'",
+        "-q",
+        "--dry-run",
+    ])
+    assert code_dry == 0
+    out_dry = capsys.readouterr().out
+    assert "Args: staging 'prod 1'" in out_dry
+    assert "Quiet: True" in out_dry
+
+    # 2. quiet 模式下单脚本全通过仅输出一行
+    def mock_pass_matrix(args, script_path, matrix):
+        return RunReport(
+            [SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.42)],
+            total_duration=0.42,
+        )
+
+    with patch("opsscript_gate.cli.run_checked_matrix", side_effect=mock_pass_matrix):
+        code_pass = main(["run", str(script), "-q"])
+        assert code_pass == 0
+        out_pass = capsys.readouterr().out.strip()
+        assert out_pass == "OpsScript Gate: All 1 distributions passed (0.42s)"
+
+    # 3. quiet 模式下若有失败则输出完整表格
+    def mock_fail_matrix(args, script_path, matrix):
+        return RunReport([SingleResult("debian:12-slim", DistroStatus.FAIL, 1, 0.50, error_message="failed exit")])
+
+    with patch("opsscript_gate.cli.run_checked_matrix", side_effect=mock_fail_matrix):
+        code_fail = main(["run", str(script), "-q"])
+        assert code_fail == 1
+        out_fail = capsys.readouterr().out
+        assert "| Distro" in out_fail
+        assert "debian:12-slim" in out_fail
+
+
+
 
