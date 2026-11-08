@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.5] - 2026-11-08
+
+### Added
+- Extended structured failure diagnostics to handle exit code 126 (`permission_denied` and `exec_format_error`) and exit code 137 (`oom_killed`) with targeted remediation suggestions.
+- Added native distribution family detection for Amazon Linux (`amazonlinux`, `amzn`) and Oracle Linux (`oracle`, `ol:`) to support RHEL-family package recommendations.
+- Added GitHub Composite Action `outputs` for `all-passed` and `report-file`, exporting execution status via `$GITHUB_OUTPUT`.
+- Surfaced package installation recommendations and package names directly in Markdown compatibility tables, failure diagnostic log drawers, and terminal detail outputs.
+- Added convenient counting properties (`passed_count`, `failed_count`, `total_count`) on `RunReport` and `MultiScriptReport`.
+
 ## [0.9.4] - 2026-10-11
 
 ### Fixed

@@ -168,6 +168,56 @@ _MISSING_COMMAND_RE = re.compile(
     re.IGNORECASE | re.VERBOSE | re.MULTILINE,
 )
 
+# Regular expression matching shell-origin 'permission denied' error patterns (exit code 126):
+_PERMISSION_DENIED_RE = re.compile(
+    r"""
+    (?:^|(?<=[\r\n]))
+    \s*
+    (?:
+        (?:
+            (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)
+            (?::\s*[^:\r\n]+)?
+            |
+            [^:\r\n]+?
+        )
+        :\s*(?:line\s+(?P<line1>\d+)|(?P<line2>\d+))
+        |
+        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)
+    )
+    :\s+
+    (?P<cmd>['"`]?[\w./+-]+['"`]?)
+    :\s+
+    (?:Permission\s+denied)
+    \s*(?=$|[\r\n])
+    """,
+    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
+)
+
+# Regular expression matching binary execution format error patterns (exit code 126):
+_EXEC_FORMAT_RE = re.compile(
+    r"""
+    (?:^|(?<=[\r\n]))
+    \s*
+    (?:
+        (?:
+            (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)
+            (?::\s*[^:\r\n]+)?
+            |
+            [^:\r\n]+?
+        )
+        :\s*(?:line\s+(?P<line1>\d+)|(?P<line2>\d+))
+        |
+        (?:/(?:usr/)?bin/)?(?:sh|bash|dash|ash)
+    )
+    :\s+
+    (?P<cmd>['"`]?[\w./+-]+['"`]?)
+    :\s+
+    (?:cannot\s+execute\s+binary\s+file(?::\s+Exec\s+format\s+error)?|Exec\s+format\s+error)
+    \s*(?=$|[\r\n])
+    """,
+    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
+)
+
 # Strict whitelist for extracted command token validation (alphanumerics, Unicode words, dots, dashes, slashes):
 _VALID_COMMAND_TOKEN_RE = re.compile(r"^[\w./+-]+$")
 
@@ -188,74 +238,134 @@ def extract_failure_diagnostic(
     Extract high-confidence structured diagnostic from container execution failure.
 
     Deliberately conservative (prefer false negatives over false positives):
-    - Requires exit_code == 127 as an essential high-confidence signal.
-    - Requires matching a well-known shell 'not found' pattern in output.
-    - Strictly validates command token syntax (no arbitrary text or markdown injection).
+    - Supports exit_code == 127 (missing command).
+    - Supports exit_code == 126 (permission denied or exec format error).
+    - Strictly validates command/target token syntax (no arbitrary text or injection).
     - Extracts script line number if reliably present, otherwise None (never guess).
     - Applies conservative remediation rules when a recognized pattern matches.
-    - Returns None if not confidently classified as missing_command.
     """
-    if exit_code != 127 or not output:
+    if exit_code not in (127, 126) or not output:
         return None
 
     # Strip ANSI escape sequences first
     cleaned_output = _ANSI_ESCAPE_RE.sub("", output)
 
-    for line in cleaned_output.splitlines():
-        line_clean = line.strip()
-        if not line_clean:
-            continue
+    if exit_code == 127:
+        for line in cleaned_output.splitlines():
+            line_clean = line.strip()
+            if not line_clean:
+                continue
 
-        m = _MISSING_COMMAND_RE.search(line_clean)
-        if not m:
-            continue
+            m = _MISSING_COMMAND_RE.search(line_clean)
+            if not m:
+                continue
 
-        raw_cmd = m.group("cmd").strip("'\"`")
-        if not raw_cmd or raw_cmd.isdigit():
-            continue
+            raw_cmd = m.group("cmd").strip("'\"`")
+            if not raw_cmd or raw_cmd.isdigit():
+                continue
 
-        # Disallow pure dot/slash sequences
-        if raw_cmd in (".", "..", "/", "//"):
-            continue
+            # Disallow pure dot/slash sequences
+            if raw_cmd in (".", "..", "/", "//"):
+                continue
 
-        # Exclude common non-command tokens and protocol prefixes (e.g. Status, Error, HTTP/1.1)
-        lowered = raw_cmd.lower()
-        if lowered in _NON_COMMAND_TOKENS or lowered.split("/")[0] in _NON_COMMAND_TOKENS:
-            continue
+            # Exclude common non-command tokens and protocol prefixes (e.g. Status, Error, HTTP/1.1)
+            lowered = raw_cmd.lower()
+            if lowered in _NON_COMMAND_TOKENS or lowered.split("/")[0] in _NON_COMMAND_TOKENS:
+                continue
 
-        # Validate against strict conservative grammar
-        if not _VALID_COMMAND_TOKEN_RE.match(raw_cmd):
-            continue
+            # Validate against strict conservative grammar
+            if not _VALID_COMMAND_TOKEN_RE.match(raw_cmd):
+                continue
 
-        sanitized_cmd = sanitize_diagnostic_text(raw_cmd, max_length=100)
-        if not sanitized_cmd or not _VALID_COMMAND_TOKEN_RE.match(sanitized_cmd):
-            continue
+            sanitized_cmd = sanitize_diagnostic_text(raw_cmd, max_length=100)
+            if not sanitized_cmd or not _VALID_COMMAND_TOKEN_RE.match(sanitized_cmd):
+                continue
 
-        line_str = m.group("line1") or m.group("line2")
-        # Avoid converting attacker-controlled arbitrarily long digit strings.
-        line_num = None
-        if line_str and len(line_str) <= 9 and line_str.isdigit():
-            try:
-                line_num = int(line_str)
-            except ValueError:
-                line_num = None
+            line_str = m.group("line1") or m.group("line2")
+            # Avoid converting attacker-controlled arbitrarily long digit strings.
+            line_num = None
+            if line_str and len(line_str) <= 9 and line_str.isdigit():
+                try:
+                    line_num = int(line_str)
+                except ValueError:
+                    line_num = None
 
-        hint = generate_remediation_hint(
-            distro=distro,
-            command=sanitized_cmd,
-            kind="missing_command",
-        )
-        suggested_pkg, _ = resolve_package_recommendation(sanitized_cmd, distro)
+            hint = generate_remediation_hint(
+                distro=distro,
+                command=sanitized_cmd,
+                kind="missing_command",
+            )
+            suggested_pkg, _ = resolve_package_recommendation(sanitized_cmd, distro)
 
-        return FailureDiagnostic(
-            kind="missing_command",
-            command=sanitized_cmd,
-            message=f"command not found: {sanitized_cmd}",
-            line=line_num,
-            distro=distro,
-            hint=hint,
-            suggested_package=suggested_pkg,
-        )
+            return FailureDiagnostic(
+                kind="missing_command",
+                command=sanitized_cmd,
+                message=f"command not found: {sanitized_cmd}",
+                line=line_num,
+                distro=distro,
+                hint=hint,
+                suggested_package=suggested_pkg,
+            )
+
+    elif exit_code == 126:
+        for line in cleaned_output.splitlines():
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+
+            # 1. Check for permission denied on script or binary
+            m_perm = _PERMISSION_DENIED_RE.search(line_clean)
+            if m_perm:
+                raw_target = m_perm.group("cmd").strip("'\"`")
+                if raw_target and raw_target not in (".", "..", "/", "//") and _VALID_COMMAND_TOKEN_RE.match(raw_target):
+                    sanitized_target = sanitize_diagnostic_text(raw_target, max_length=100)
+                    line_str = m_perm.group("line1") or m_perm.group("line2")
+                    line_num = None
+                    if line_str and len(line_str) <= 9 and line_str.isdigit():
+                        try:
+                            line_num = int(line_str)
+                        except ValueError:
+                            line_num = None
+                    hint = generate_remediation_hint(
+                        distro=distro,
+                        command=sanitized_target,
+                        kind="permission_denied",
+                    )
+                    return FailureDiagnostic(
+                        kind="permission_denied",
+                        command=sanitized_target,
+                        message=f"permission denied: {sanitized_target}",
+                        line=line_num,
+                        distro=distro,
+                        hint=hint,
+                    )
+
+            # 2. Check for exec format error / cannot execute binary
+            m_exec = _EXEC_FORMAT_RE.search(line_clean)
+            if m_exec:
+                raw_target = m_exec.group("cmd").strip("'\"`")
+                if raw_target and raw_target not in (".", "..", "/", "//") and _VALID_COMMAND_TOKEN_RE.match(raw_target):
+                    sanitized_target = sanitize_diagnostic_text(raw_target, max_length=100)
+                    line_str = m_exec.group("line1") or m_exec.group("line2")
+                    line_num = None
+                    if line_str and len(line_str) <= 9 and line_str.isdigit():
+                        try:
+                            line_num = int(line_str)
+                        except ValueError:
+                            line_num = None
+                    hint = generate_remediation_hint(
+                        distro=distro,
+                        command=sanitized_target,
+                        kind="exec_format_error",
+                    )
+                    return FailureDiagnostic(
+                        kind="exec_format_error",
+                        command=sanitized_target,
+                        message=f"cannot execute binary: {sanitized_target}",
+                        line=line_num,
+                        distro=distro,
+                        hint=hint,
+                    )
 
     return None
 
@@ -1016,6 +1126,18 @@ def run_on_distro(
             diagnostic = extract_failure_diagnostic(output, exit_code=exit_code, distro=distro)
             if state.get("OOMKilled"):
                 err_msg = f"Container exceeded memory limit ({mem_limit}) and was killed by OOM killer (exit code: {exit_code})"
+                if diagnostic is None:
+                    hint = generate_remediation_hint(
+                        distro=distro,
+                        command=None,
+                        kind="oom_killed",
+                    )
+                    diagnostic = FailureDiagnostic(
+                        kind="oom_killed",
+                        message=f"container exceeded memory limit ({mem_limit})",
+                        distro=distro,
+                        hint=hint,
+                    )
             else:
                 err_msg = f"Script failed with non-zero exit code: {exit_code}"
             return SingleResult(

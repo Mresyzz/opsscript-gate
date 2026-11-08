@@ -80,6 +80,14 @@ inputs:
     required: false
     default: ''
 
+outputs:
+  all-passed:
+    description: 'Whether all script compatibility checks passed (true or false)'
+    value: ${{ steps.gate.outputs.all-passed }}
+  report-file:
+    description: 'Path to saved report file if output input was set'
+    value: ${{ inputs.output }}
+
 runs:
   using: 'composite'
   steps:
@@ -94,6 +102,7 @@ runs:
         pip install "${{ github.action_path }}"
 
     - name: Run compatibility gate
+      id: gate
       shell: bash
       env:
         INPUT_SCRIPT_PATH: ${{ inputs.script-path }}
@@ -146,4 +155,11 @@ runs:
           echo "dry-run must be true or false" >&2
           exit 1
         fi
-        python -m opsscript_gate.cli "${ARGS[@]}"
+        GATE_STATUS=0
+        python -m opsscript_gate.cli "${ARGS[@]}" || GATE_STATUS=$?
+        if [ "$GATE_STATUS" -eq 0 ]; then
+          echo "all-passed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "all-passed=false" >> "$GITHUB_OUTPUT"
+        fi
+        exit "$GATE_STATUS"

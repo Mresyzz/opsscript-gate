@@ -264,7 +264,10 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
             line_suffix = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             detail = f"{sanitize_display_text(r.diagnostic.message)}{line_suffix}"
             if r.diagnostic.hint:
-                hints.append((safe_distro, sanitize_display_text(r.diagnostic.hint)))
+                hint_text = sanitize_display_text(r.diagnostic.hint)
+                if r.diagnostic.suggested_package:
+                    hint_text += f" (suggested package: {sanitize_display_text(r.diagnostic.suggested_package)})"
+                hints.append((safe_distro, hint_text))
         elif r.error_message:
             detail = sanitize_display_text(r.error_message)
         else:
@@ -403,9 +406,18 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         elif r.diagnostic:
             line_str = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
             clean_cmd = _table_code_span(r.diagnostic.command) if r.diagnostic.command else "command"
-            diag_cell = f"⚠️ Missing command: {clean_cmd}{line_str}"
+            if r.diagnostic.kind == "permission_denied":
+                diag_cell = f"Permission denied: {clean_cmd}{line_str}"
+            elif r.diagnostic.kind == "exec_format_error":
+                diag_cell = f"Exec format error: {clean_cmd}{line_str}"
+            elif r.diagnostic.kind == "oom_killed":
+                diag_cell = "OOM Killed (memory limit exceeded)"
+            else:
+                diag_cell = f"Missing command: {clean_cmd}{line_str}"
+            if r.diagnostic.suggested_package:
+                diag_cell += f"<br>Package: `{escape_markdown_table_cell(r.diagnostic.suggested_package)}`"
             if r.diagnostic.hint:
-                diag_cell += f"<br>💡 *{escape_markdown_table_cell(r.diagnostic.hint)}*"
+                diag_cell += f"<br>*{escape_markdown_table_cell(r.diagnostic.hint)}*"
         elif r.error_message:
             diag_cell = escape_markdown_table_cell(r.error_message)
         elif r.status != DistroStatus.PASS:
@@ -466,9 +478,12 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
                 clean_msg = escape_inline_code(r.diagnostic.message)
                 line_info = f" (line {r.diagnostic.line})" if r.diagnostic.line else ""
                 lines.append(f"> **Diagnostic:** `{clean_kind}` — `{clean_msg}`{line_info}")
+                if r.diagnostic.suggested_package:
+                    clean_pkg = escape_inline_code(r.diagnostic.suggested_package)
+                    lines.append(f"> **Suggested Package:** `{clean_pkg}`")
                 if r.diagnostic.hint:
                     safe_hint = escape_markdown_text(r.diagnostic.hint)
-                    lines.append(f"> 💡 **Recommendation:** {safe_hint}")
+                    lines.append(f"> **Recommendation:** {safe_hint}")
                 lines.append("")
             if r.error_message:
                 safe_err = escape_markdown_text(r.error_message)
@@ -583,6 +598,7 @@ def _sarif_result(result: SingleResult, script_path: str) -> dict[str, object] |
     if result.exit_code is not None:
         properties["exitCode"] = result.exit_code
     if result.diagnostic:
+        properties["diagnosticKind"] = result.diagnostic.kind
         if result.diagnostic.command:
             properties["command"] = sanitize_display_text(result.diagnostic.command)
         if result.diagnostic.suggested_package:

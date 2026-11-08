@@ -19,6 +19,9 @@ def test_action_metadata_is_valid_and_inputs_are_wired():
     assert "json, or sarif" in text
     assert "--changed-since" in run_text
     assert "DRY_RUN_VALUE=\"$(printf '%s' \"$INPUT_DRY_RUN\" | tr '[:upper:]' '[:lower:]')\"" in text
+    assert "outputs:" in text
+    assert "  all-passed:" in text
+    assert "  report-file:" in text
 
 
 def test_test_workflow_has_valid_yaml_and_python_indent():
