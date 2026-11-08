@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 from docker.errors import DockerException
@@ -18,15 +19,42 @@ DEFAULTS = {
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
     "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
     "repeat": 1, "env": {}, "workdir": None, "fail_fast": False,
+    "args": [], "quiet": False,
 }
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
 MAX_REPEAT_ATTEMPTS = 20
 MAX_TIMEOUT_SECONDS = 3600
 MAX_MATRIX_IMAGES = 32
+MAX_ARGS_COUNT = 128
+MAX_ARG_LENGTH = 4096
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def validate_args(value: object) -> list[str]:
+    """Validate and normalize positional arguments passed to the script under test."""
+    if isinstance(value, str):
+        try:
+            tokens = shlex.split(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid args string syntax: {exc}") from exc
+    elif isinstance(value, (list, tuple)):
+        if not all(isinstance(a, str) for a in value):
+            raise ValueError("args list must contain only strings")
+        tokens = list(value)
+    else:
+        raise ValueError("args must be a string or a list of argument strings")
+
+    if len(tokens) > MAX_ARGS_COUNT:
+        raise ValueError(f"args must not contain more than {MAX_ARGS_COUNT} arguments")
+
+    for idx, arg in enumerate(tokens):
+        if len(arg) > MAX_ARG_LENGTH:
+            raise ValueError(f"arg at index {idx} exceeds maximum length of {MAX_ARG_LENGTH} characters")
+
+    return tokens
 
 
 def validate_env(value: object) -> dict[str, str]:
@@ -133,6 +161,11 @@ def load_config(filename: str | None) -> dict:
         elif key == "fail_fast":
             if not isinstance(value, bool):
                 raise ValueError("fail_fast must be a boolean")
+        elif key == "args":
+            config[key] = validate_args(value)
+        elif key == "quiet":
+            if not isinstance(value, bool):
+                raise ValueError("quiet must be a boolean")
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -166,7 +199,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.7
+      - uses: Mresyzz/opsscript-gate@v0.9.8
         with:
           config: .opsscript-gate.json
 """,

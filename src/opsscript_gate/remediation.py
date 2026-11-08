@@ -72,6 +72,18 @@ def _match_alpine_bash(distro: str | None, command: str | None, kind: str) -> bo
     return "alpine" in distro.lower() and _normalize_cmd_basename(command) == "bash"
 
 
+def _match_alpine_dash(distro: str | None, command: str | None, kind: str) -> bool:
+    if not distro or not command:
+        return False
+    return detect_distro_family(distro) == "alpine" and _normalize_cmd_basename(command) == "dash"
+
+
+def _match_debian_ash(distro: str | None, command: str | None, kind: str) -> bool:
+    if not distro or not command:
+        return False
+    return detect_distro_family(distro) == "debian" and _normalize_cmd_basename(command) == "ash"
+
+
 def _match_curl(distro: str | None, command: str | None, kind: str) -> bool:
     return _normalize_cmd_basename(command) == "curl"
 
@@ -231,6 +243,16 @@ REMEDIATION_RULES: list[RemediationRule] = [
         rule_id="alpine_bash",
         matcher=_match_alpine_bash,
         hint="Alpine minimal images do not include Bash by default; consider using POSIX sh or installing bash.",
+    ),
+    RemediationRule(
+        rule_id="alpine_dash",
+        matcher=_match_alpine_dash,
+        hint="Alpine Linux minimal images use busybox ash by default and do not include dash; consider using POSIX sh or installing dash.",
+    ),
+    RemediationRule(
+        rule_id="debian_ash",
+        matcher=_match_debian_ash,
+        hint="Debian/Ubuntu distributions use dash as /bin/sh and do not provide standalone ash by default; consider using /bin/sh or installing ash.",
     ),
     RemediationRule(
         rule_id="missing_curl",

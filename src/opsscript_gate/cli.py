@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from opsscript_gate.config import (
     PRESETS,
     init_project,
     load_config,
+    validate_args,
     validate_env,
     validate_memory_limit,
     validate_packages,
@@ -176,6 +178,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop immediately on the first failed distribution or script check",
     )
     run_parser.add_argument(
+        "--args",
+        type=str,
+        default=None,
+        help="Arguments string or repeated arguments to pass to the script under test",
+    )
+    run_parser.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        default=False,
+        help="Quiet mode: on all checks passed, only print a compact single line summary",
+    )
+    run_parser.add_argument(
         "--changed-since",
         help="Only test shell scripts changed between this Git revision and HEAD",
     )
@@ -258,6 +272,7 @@ def run_checked_matrix(
             env=args.env,
             workdir=args.workdir,
             fail_fast=getattr(args, "fail_fast", False),
+            args=getattr(args, "args", None),
         )
     except DockerDaemonError as err:
         sys.stderr.write(f"Docker Error: {err}\n")
@@ -359,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
                 explicit.add("--jobs")
             if any(token == "-x" or token.startswith("-x") for token in argv):
                 explicit.add("--fail-fast")
+            if any(token == "-q" or token.startswith("-q") for token in argv):
+                explicit.add("--quiet")
             for key in DEFAULTS:
                 if key in config and "--" + key.replace("_", "-") not in explicit:
                     setattr(args, key, config[key])
@@ -386,6 +403,11 @@ def main(argv: list[str] | None = None) -> int:
             args.env = parse_env_arguments(args.env, base_env=base_env)
             if args.workdir:
                 args.workdir = validate_workdir(args.workdir)
+            if args.args:
+                args.args = validate_args(args.args)
+            elif not isinstance(args.args, list):
+                args.args = []
+            args.quiet = bool(args.quiet)
             if args.matrix is not None and not any(x.strip() for x in args.matrix.split(",")):
                 raise ValueError("matrix must contain at least one image")
         except ValueError as err:
@@ -456,12 +478,14 @@ def main(argv: list[str] | None = None) -> int:
                     "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
                     "repeat": args.repeat, "env": args.env, "workdir": args.workdir,
-                    "fail_fast": args.fail_fast}
+                    "fail_fast": args.fail_fast, "args": args.args, "quiet": args.quiet}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
             env_preview = f"\nEnv: {', '.join(f'{k}={v}' for k, v in args.env.items())}" if args.env else ""
             workdir_preview = f"\nWorkdir: {args.workdir}" if args.workdir else ""
             fail_fast_preview = f"\nFail-Fast: {args.fail_fast}" if args.fail_fast else ""
+            args_preview = f"\nArgs: {' '.join(shlex.quote(a) for a in args.args)}" if args.args else ""
+            quiet_preview = f"\nQuiet: {args.quiet}" if args.quiet else ""
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
@@ -470,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
                 + env_preview
                 + workdir_preview
                 + fail_fast_preview
+                + args_preview
+                + quiet_preview
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s | Repeat: {args.repeat}"
             )
             return 0 if publish_output(output, args.output) else 1
@@ -507,7 +533,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 output = format_terminal_table(report, script_path=script_path)
 
-            if not publish_output(output, args.output):
+            quiet_summary = None
+            if args.quiet and report.all_passed:
+                quiet_summary = f"OpsScript Gate: All {len(report.results)} distributions passed ({report.total_duration:.2f}s)"
+
+            if not publish_output(output, args.output, quiet_summary=quiet_summary):
                 return 1
 
             # Emit GitHub line annotations if in CI
@@ -552,7 +582,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             output = format_multi_terminal_table(multi_report)
 
-        if not publish_output(output, args.output):
+        quiet_summary = None
+        if args.quiet and multi_report.all_passed:
+            quiet_summary = f"OpsScript Gate: All {len(multi_report.reports)} scripts passed ({multi_report.total_duration:.2f}s)"
+
+        if not publish_output(output, args.output, quiet_summary=quiet_summary):
             return 1
 
         write_github_step_summary(multi_report)
@@ -562,9 +596,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def publish_output(output: str, filename: str | None) -> bool:
+def publish_output(
+    output: str,
+    filename: str | None,
+    quiet_summary: str | None = None,
+) -> bool:
     # Always keep the terminal result visible even when persistence fails.
-    print(output)
+    if quiet_summary is not None:
+        print(quiet_summary)
+    else:
+        print(output)
     if filename:
         try:
             path = Path(filename)
