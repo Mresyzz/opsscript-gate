@@ -818,15 +818,18 @@ def test_parse_env_arguments_cli(monkeypatch):
         parse_env_arguments(["BAD-NAME=1"])
 
 
-def test_cli_output_overwrites_protected_case_insensitive(tmp_path):
+def test_cli_output_overwrites_protected_case_insensitive(tmp_path, monkeypatch):
     from opsscript_gate.cli import _output_overwrites_protected
     from pathlib import Path
 
     file_a = tmp_path / "README.md"
     file_a.write_text("hello")
 
-    # 同一路径或大小写变体
+    # 同一路径
     assert _output_overwrites_protected(file_a, [file_a]) is True
+
+    # 验证在 Windows 平台下大小写不敏感碰撞保护
+    monkeypatch.setattr("os.name", "nt")
     file_lower = tmp_path / "readme.md"
     assert _output_overwrites_protected(file_lower, [file_a]) is True
 
