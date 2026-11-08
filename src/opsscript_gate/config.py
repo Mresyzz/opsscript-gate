@@ -17,7 +17,7 @@ DEFAULTS = {
     "matrix": None, "preset": None, "jobs": None, "timeout": 60,
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
     "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
-    "repeat": 1, "env": {}, "workdir": None,
+    "repeat": 1, "env": {}, "workdir": None, "fail_fast": False,
 }
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
@@ -130,6 +130,9 @@ def load_config(filename: str | None) -> dict:
             validate_env(value)
         elif key == "workdir":
             validate_workdir(value)
+        elif key == "fail_fast":
+            if not isinstance(value, bool):
+                raise ValueError("fail_fast must be a boolean")
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -163,7 +166,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.6
+      - uses: Mresyzz/opsscript-gate@v0.9.7
         with:
           config: .opsscript-gate.json
 """,

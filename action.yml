@@ -79,6 +79,10 @@ inputs:
     description: 'Preview the execution plan without Docker'
     required: false
     default: 'false'
+  fail-fast:
+    description: 'Stop immediately on the first failed distribution or script check (default: false)'
+    required: false
+    default: 'false'
   output:
     description: 'Save a report file for upload-artifact or other tooling'
     required: false
@@ -131,6 +135,7 @@ runs:
         INPUT_EXCLUDE: ${{ inputs.exclude }}
         INPUT_MAX_SCRIPTS: ${{ inputs.max-scripts }}
         INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
       run: |
@@ -163,6 +168,13 @@ runs:
           pattern="${pattern%$'\r'}"
           [ -z "$pattern" ] || ARGS+=("--exclude" "$pattern")
         done <<< "$INPUT_EXCLUDE"
+        FAIL_FAST_VALUE="$(printf '%s' "$INPUT_FAIL_FAST" | tr '[:upper:]' '[:lower:]')"
+        if [ "$FAIL_FAST_VALUE" = "true" ]; then
+          ARGS+=("--fail-fast")
+        elif [ "$FAIL_FAST_VALUE" != "false" ]; then
+          echo "fail-fast must be true or false" >&2
+          exit 1
+        fi
         DRY_RUN_VALUE="$(printf '%s' "$INPUT_DRY_RUN" | tr '[:upper:]' '[:lower:]')"
         if [ "$DRY_RUN_VALUE" = "true" ]; then
           ARGS+=("--dry-run")

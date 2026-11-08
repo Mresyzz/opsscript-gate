@@ -83,7 +83,7 @@ def test_init_existing_workflow_leaves_config_absent(project):
     {"matrix": ","}, {"mem_limit": "0"}, {"mem_limit": "unlimited"}, {"repeat": 21}, {"timeout": 3601},
     {"packages": "curl"}, {"packages": ["curl; touch pwned"]},
     {"env": "not_a_dict"}, {"env": {"1_BAD": "val"}}, {"env": {"OK": 123}},
-    {"workdir": 123}, {"workdir": ""}])
+    {"workdir": 123}, {"workdir": ""}, {"fail_fast": "yes"}, {"fail_fast": 1}])
 def test_invalid_config(project, config):
     Path(CONFIG_NAME).write_text(json.dumps(config))
     with patch("opsscript_gate.cli.run_matrix") as run:

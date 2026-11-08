@@ -170,6 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Host directory to mount read-only into /workspace as the container working directory",
     )
     run_parser.add_argument(
+        "-x", "--fail-fast",
+        action="store_true",
+        default=False,
+        help="Stop immediately on the first failed distribution or script check",
+    )
+    run_parser.add_argument(
         "--changed-since",
         help="Only test shell scripts changed between this Git revision and HEAD",
     )
@@ -251,6 +257,7 @@ def run_checked_matrix(
             repeat=args.repeat,
             env=args.env,
             workdir=args.workdir,
+            fail_fast=getattr(args, "fail_fast", False),
         )
     except DockerDaemonError as err:
         sys.stderr.write(f"Docker Error: {err}\n")
@@ -350,6 +357,8 @@ def main(argv: list[str] | None = None) -> int:
             explicit = {token.split("=", 1)[0] for token in argv if token.startswith("--")}
             if any(token.startswith("-j") for token in argv):
                 explicit.add("--jobs")
+            if any(token == "-x" or token.startswith("-x") for token in argv):
+                explicit.add("--fail-fast")
             for key in DEFAULTS:
                 if key in config and "--" + key.replace("_", "-") not in explicit:
                     setattr(args, key, config[key])
@@ -446,11 +455,13 @@ def main(argv: list[str] | None = None) -> int:
             plan = {"dry_run": True, "scripts": target_scripts, "matrix": matrix,
                     "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
-                    "repeat": args.repeat, "env": args.env, "workdir": args.workdir}
+                    "repeat": args.repeat, "env": args.env, "workdir": args.workdir,
+                    "fail_fast": args.fail_fast}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
             env_preview = f"\nEnv: {', '.join(f'{k}={v}' for k, v in args.env.items())}" if args.env else ""
             workdir_preview = f"\nWorkdir: {args.workdir}" if args.workdir else ""
+            fail_fast_preview = f"\nFail-Fast: {args.fail_fast}" if args.fail_fast else ""
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
@@ -458,6 +469,7 @@ def main(argv: list[str] | None = None) -> int:
                 + (f"\nPackages: {', '.join(args.packages)}" if args.packages else "")
                 + env_preview
                 + workdir_preview
+                + fail_fast_preview
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s | Repeat: {args.repeat}"
             )
             return 0 if publish_output(output, args.output) else 1
@@ -519,6 +531,9 @@ def main(argv: list[str] | None = None) -> int:
             multi_reports[script_path] = report
             if args.format not in ("json", "sarif"):
                 emit_github_annotations(report, script_path=script_path)
+
+            if args.fail_fast and not report.all_passed:
+                break
 
         total_duration = time.perf_counter() - multi_start
         all_passed = all(r.all_passed for r in multi_reports.values())

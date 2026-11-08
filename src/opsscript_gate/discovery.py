@@ -34,6 +34,12 @@ SHELL_SHEBANG_PREFIXES = (
     "#!/usr/bin/bash",
     "#!/usr/bin/env sh",
     "#!/usr/bin/env bash",
+    "#!/bin/dash",
+    "#!/usr/bin/dash",
+    "#!/usr/bin/env dash",
+    "#!/bin/ash",
+    "#!/usr/bin/ash",
+    "#!/usr/bin/env ash",
 )
 
 MAX_DISCOVERED_SCRIPTS = 20
