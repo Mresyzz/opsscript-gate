@@ -26,6 +26,7 @@ from opsscript_gate.config import (
     validate_env,
     validate_memory_limit,
     validate_packages,
+    validate_user,
     validate_workdir,
 )
 from opsscript_gate.models import DistroStatus, FailureDiagnostic, RunReport, ShellMode, SingleResult
@@ -898,6 +899,7 @@ def _runtime_option_error(
     env: dict[str, str] | None = None,
     workdir: str | None = None,
     args: Sequence[str] | None = None,
+    user: str | None = None,
 ) -> str | None:
     """Validate execution options shared by the public runner entry points."""
     if isinstance(packages, (str, bytes)):
@@ -923,6 +925,8 @@ def _runtime_option_error(
             validate_workdir(workdir)
         if args is not None:
             validate_args(args)
+        if user is not None:
+            validate_user(user)
     except (TypeError, ValueError) as exc:
         return str(exc)
     return None
@@ -962,6 +966,7 @@ def run_on_distro(
     env: dict[str, str] | None = None,
     workdir: str | None = None,
     args: Sequence[str] | None = None,
+    user: str | None = None,
 ) -> SingleResult:
     """
     Run a target script inside an unprivileged, non-interactive container.
@@ -977,7 +982,7 @@ def run_on_distro(
             error_message="packages must be a list of package names",
         )
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args, user=user)
     if option_error:
         return SingleResult(
             distro=distro,
@@ -1142,6 +1147,8 @@ def run_on_distro(
         }
         if workdir is not None:
             create_kwargs["working_dir"] = "/workspace"
+        if user is not None:
+            create_kwargs["user"] = validate_user(user)
         try:
             container = client.containers.create(**create_kwargs)
         except ImageNotFound:
@@ -1320,6 +1327,7 @@ def run_matrix(
     workdir: str | None = None,
     fail_fast: bool = False,
     args: Sequence[str] | None = None,
+    user: str | None = None,
 ) -> RunReport:
     """
     Run the compatibility check across all specified Linux distributions,
@@ -1379,11 +1387,12 @@ def run_matrix(
     if isinstance(packages, (str, bytes)):
         raise ValueError("packages must be a list of package names")
     package_list = list(packages or [])
-    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args)
+    option_error = _runtime_option_error(timeout, mem_limit, pids_limit, network, package_list, env=env, workdir=workdir, args=args, user=user)
     if option_error:
         raise ValueError(option_error)
     package_list = validate_packages(package_list)
     parsed_args = validate_args(args) if args else []
+    validated_user = validate_user(user) if user is not None else None
     mem_limit = validate_memory_limit(mem_limit)
     if package_list and network == "none":
         raise ValueError("Package setup requires network mode 'bridge'")
@@ -1435,6 +1444,7 @@ def run_matrix(
                 env=env,
                 workdir=workdir,
                 args=parsed_args,
+                user=validated_user,
             )
             attempts.append(res_attempt)
             if fail_fast and res_attempt.status != DistroStatus.PASS:
@@ -1443,8 +1453,9 @@ def run_matrix(
         if len(attempts) == 1:
             return index, attempts[0]
 
+        executed_attempts = len(attempts)
         passed = sum(result.status == DistroStatus.PASS for result in attempts)
-        failed = repeat - passed
+        failed = executed_attempts - passed
         non_passed = [r for r in attempts if r.status != DistroStatus.PASS]
         # Preserve the most actionable failure when one attempt also reports a
         # transient daemon error. A diagnostic-bearing result is more useful
@@ -1457,8 +1468,8 @@ def run_matrix(
         if passed and failed:
             status = DistroStatus.FLAKY
             message = (
-                f"Runtime was non-deterministic: {passed}/{repeat} attempts passed "
-                f"and {failed}/{repeat} failed"
+                f"Runtime was non-deterministic: {passed}/{executed_attempts} attempts passed "
+                f"and {failed}/{executed_attempts} failed"
             )
             error_message = message if representative.error_message is None else (
                 f"{message}; {representative.error_message}"
@@ -1475,7 +1486,7 @@ def run_matrix(
             output_snippet=representative.output_snippet,
             error_message=error_message,
             diagnostic=representative.diagnostic,
-            attempts=repeat,
+            attempts=executed_attempts,
             passed_attempts=passed,
             failed_attempts=failed,
         )

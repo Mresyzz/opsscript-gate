@@ -91,6 +91,14 @@ inputs:
     description: 'Quiet mode: print compact summary on success (default: false)'
     required: false
     default: 'false'
+  user:
+    description: 'Container user or UID[:GID] to run the script as (e.g. 1000:1000, nobody)'
+    required: false
+    default: ''
+  only-failures:
+    description: 'Only show failed distributions and scripts in table and markdown reports (default: false)'
+    required: false
+    default: 'false'
   output:
     description: 'Save a report file for upload-artifact or other tooling'
     required: false
@@ -146,6 +154,8 @@ runs:
         INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
         INPUT_ARGS: ${{ inputs.args }}
         INPUT_QUIET: ${{ inputs.quiet }}
+        INPUT_USER: ${{ inputs.user }}
+        INPUT_ONLY_FAILURES: ${{ inputs.only-failures }}
         INPUT_OUTPUT: ${{ inputs.output }}
         INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
       run: |
@@ -170,7 +180,8 @@ runs:
         [ -z "$INPUT_MAX_SCRIPTS" ] || ARGS+=(--max-scripts "$INPUT_MAX_SCRIPTS")
         [ -z "$INPUT_OUTPUT" ] || ARGS+=(--output "$INPUT_OUTPUT")
         [ -z "$INPUT_CHANGED_SINCE" ] || ARGS+=(--changed-since "$INPUT_CHANGED_SINCE")
-        [ -z "$INPUT_ARGS" ] || ARGS+=(--args "$INPUT_ARGS")
+        [ -z "$INPUT_ARGS" ] || ARGS+=("--args=$INPUT_ARGS")
+        [ -z "$INPUT_USER" ] || ARGS+=(--user "$INPUT_USER")
         while IFS= read -r env_var; do
           env_var="${env_var%$'\r'}"
           [ -z "$env_var" ] || ARGS+=("--env" "$env_var")
@@ -191,6 +202,13 @@ runs:
           ARGS+=("--quiet")
         elif [ "$QUIET_VALUE" != "false" ]; then
           echo "quiet must be true or false" >&2
+          exit 1
+        fi
+        ONLY_FAILURES_VALUE="$(printf '%s' "$INPUT_ONLY_FAILURES" | tr '[:upper:]' '[:lower:]')"
+        if [ "$ONLY_FAILURES_VALUE" = "true" ]; then
+          ARGS+=("--only-failures")
+        elif [ "$ONLY_FAILURES_VALUE" != "false" ]; then
+          echo "only-failures must be true or false" >&2
           exit 1
         fi
         DRY_RUN_VALUE="$(printf '%s' "$INPUT_DRY_RUN" | tr '[:upper:]' '[:lower:]')"

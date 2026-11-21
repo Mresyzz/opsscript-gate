@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.9] - 2026-11-21
+
+### Fixed
+- Fixed `repeat` attempt accounting when `--fail-fast` aborts early: `SingleResult` now records actual executed attempts (`executed_attempts`) instead of the configured upper bound `repeat`.
+- Fixed configured `"env"` dictionaries in `.opsscript-gate.json` being overwritten by empty host values when `--env` is omitted on the CLI.
+- Fixed CLI `--args` parsing when forwarded script arguments start with leading dashes (e.g. `--args "--dry-run --network=none -x"`), preventing `argparse` rejection and false explicit-option detection.
+
+### Added
+- Added container user specification (`--user`, config `"user"`, Action `user`) to validate script compatibility under non-root users or `UID[:GID]` pairs (e.g. `1000:1000`, `nobody`).
+- Added `--only-failures` filtering across CLI, configuration `"only_failures"`, and Action `only-failures` to hide passing rows and scripts in terminal table and Markdown summary reports.
+- Expanded `COMMON_COMMAND_PACKAGES` with cross-distro package recommendations for 16 additional operational utilities (`ip`, `ss`, `ping`, `dig`, `nslookup`, `lsof`, `killall`, `pkill`, `pgrep`, `bc`, `file`, `tree`, `less`, `strace`, `tput`, `uuidgen`).
+
 ## [0.9.8] - 2026-11-08
 
 ### Fixed

@@ -23,6 +23,7 @@ from opsscript_gate.config import (
     validate_env,
     validate_memory_limit,
     validate_packages,
+    validate_user,
     validate_workdir,
 )
 from opsscript_gate.models import MultiScriptReport, RunReport
@@ -190,6 +191,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Quiet mode: on all checks passed, only print a compact single line summary",
     )
     run_parser.add_argument(
+        "--user",
+        type=str,
+        default=None,
+        help="Container user or UID[:GID] to run the script as (e.g. 1000:1000, nobody)",
+    )
+    run_parser.add_argument(
+        "--only-failures",
+        action="store_true",
+        default=False,
+        help="Only display failed distributions and scripts in table and markdown reports",
+    )
+    run_parser.add_argument(
         "--changed-since",
         help="Only test shell scripts changed between this Git revision and HEAD",
     )
@@ -227,12 +240,15 @@ def parse_packages_argument(packages_raw: list[str] | None) -> list[str]:
 
 
 def parse_env_arguments(
-    env_args: list[str] | None,
+    env_args: list[str] | dict[str, str] | None,
     base_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Parse repeated --env arguments, resolving KEY=VALUE or KEY from host env."""
     merged: dict[str, str] = dict(base_env or {})
     if not env_args:
+        return validate_env(merged) if merged else {}
+    if isinstance(env_args, dict):
+        merged.update(validate_env(env_args))
         return validate_env(merged) if merged else {}
     for item in env_args:
         for entry in item.splitlines():
@@ -273,12 +289,40 @@ def run_checked_matrix(
             workdir=args.workdir,
             fail_fast=getattr(args, "fail_fast", False),
             args=getattr(args, "args", None),
+            user=getattr(args, "user", None),
         )
     except DockerDaemonError as err:
         sys.stderr.write(f"Docker Error: {err}\n")
     except Exception as err:
         sys.stderr.write(f"Unexpected Error: {err}\n")
     return None
+
+
+def _normalize_cli_argv(argv: list[str]) -> list[str]:
+    """Rewrite ['--args', '<val>'] into ['--args=<val>'] so leading-dash script arguments parse cleanly."""
+    normalized: list[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--args" and i + 1 < len(argv):
+            normalized.append(f"--args={argv[i + 1]}")
+            i += 2
+        else:
+            normalized.append(argv[i])
+            i += 1
+    return normalized
+
+
+def _detect_explicit_run_options(argv: list[str]) -> set[str]:
+    """Return the set of CLI '--option' flags explicitly supplied by the caller."""
+    probe_parser = build_parser()
+    for action in probe_parser._actions:
+        if isinstance(action, argparse._SubParsersAction) and "run" in action.choices:
+            run_p = action.choices["run"]
+            for a in run_p._actions:
+                if a.option_strings and a.dest != "help":
+                    a.default = argparse.SUPPRESS
+    probe_args = probe_parser.parse_args(argv)
+    return {f"--{key.replace('_', '-')}" for key in vars(probe_args)}
 
 
 def _output_overwrites_protected(output_path: Path, protected: list[Path]) -> bool:
@@ -302,7 +346,7 @@ def _output_overwrites_protected(output_path: Path, protected: list[Path]) -> bo
 def main(argv: list[str] | None = None) -> int:
     """Main CLI entrypoint."""
     parser = build_parser()
-    argv = list(sys.argv[1:] if argv is None else argv)
+    argv = _normalize_cli_argv(list(sys.argv[1:] if argv is None else argv))
     args = parser.parse_args(argv)
 
     if not args.command:
@@ -369,14 +413,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         try:
             config = load_config(args.config)
-            explicit = {token.split("=", 1)[0] for token in argv if token.startswith("--")}
-            if any(token.startswith("-j") for token in argv):
-                explicit.add("--jobs")
-            if any(token == "-x" or token.startswith("-x") for token in argv):
-                explicit.add("--fail-fast")
-            if any(token == "-q" or token.startswith("-q") for token in argv):
-                explicit.add("--quiet")
+            explicit = _detect_explicit_run_options(argv)
+            cli_env_args = args.env
             for key in DEFAULTS:
+                if key == "env":
+                    continue
                 if key in config and "--" + key.replace("_", "-") not in explicit:
                     setattr(args, key, config[key])
             if "--matrix" in explicit and "--preset" in explicit:
@@ -400,14 +441,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.packages and args.network == "none":
                 raise ValueError("packages require network=bridge")
             base_env = config.get("env") if isinstance(config.get("env"), dict) else {}
-            args.env = parse_env_arguments(args.env, base_env=base_env)
+            args.env = parse_env_arguments(cli_env_args, base_env=base_env)
             if args.workdir:
                 args.workdir = validate_workdir(args.workdir)
+            if args.user is not None:
+                args.user = validate_user(args.user)
             if args.args:
                 args.args = validate_args(args.args)
             elif not isinstance(args.args, list):
                 args.args = []
             args.quiet = bool(args.quiet)
+            args.only_failures = bool(args.only_failures)
             if args.matrix is not None and not any(x.strip() for x in args.matrix.split(",")):
                 raise ValueError("matrix must contain at least one image")
         except ValueError as err:
@@ -478,7 +522,8 @@ def main(argv: list[str] | None = None) -> int:
                     "executions": len(target_scripts) * len(matrix) * args.repeat, "shell": args.shell,
                     "network": args.network, "packages": args.packages, "timeout": args.timeout,
                     "repeat": args.repeat, "env": args.env, "workdir": args.workdir,
-                    "fail_fast": args.fail_fast, "args": args.args, "quiet": args.quiet}
+                    "fail_fast": args.fail_fast, "args": args.args, "quiet": args.quiet,
+                    "user": args.user, "only_failures": args.only_failures}
             if changed_selection:
                 plan["changed_since"] = args.changed_since
             env_preview = f"\nEnv: {', '.join(f'{k}={v}' for k, v in args.env.items())}" if args.env else ""
@@ -486,6 +531,8 @@ def main(argv: list[str] | None = None) -> int:
             fail_fast_preview = f"\nFail-Fast: {args.fail_fast}" if args.fail_fast else ""
             args_preview = f"\nArgs: {' '.join(shlex.quote(a) for a in args.args)}" if args.args else ""
             quiet_preview = f"\nQuiet: {args.quiet}" if args.quiet else ""
+            user_preview = f"\nUser: {args.user}" if args.user else ""
+            only_failures_preview = f"\nOnly-Failures: {args.only_failures}" if args.only_failures else ""
             output = json.dumps(plan, indent=2) if args.format == "json" else (
                 "Execution preview (no scripts executed)\n"
                 + "\n".join(f"  {path}" for path in target_scripts)
@@ -493,9 +540,11 @@ def main(argv: list[str] | None = None) -> int:
                 + (f"\nPackages: {', '.join(args.packages)}" if args.packages else "")
                 + env_preview
                 + workdir_preview
+                + user_preview
                 + fail_fast_preview
                 + args_preview
                 + quiet_preview
+                + only_failures_preview
                 + f"\nShell: {args.shell} | Network: {args.network} | Timeout: {args.timeout}s | Repeat: {args.repeat}"
             )
             return 0 if publish_output(output, args.output) else 1
@@ -529,9 +578,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.format == "sarif":
                 output = format_sarif(report, script_path=script_path)
             elif args.format == "markdown":
-                output = format_github_summary(report, script_path=script_path)
+                output = format_github_summary(report, script_path=script_path, only_failures=args.only_failures)
             else:
-                output = format_terminal_table(report, script_path=script_path)
+                output = format_terminal_table(report, script_path=script_path, only_failures=args.only_failures)
 
             quiet_summary = None
             if args.quiet and report.all_passed:
@@ -578,9 +627,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.format == "sarif":
             output = format_multi_sarif(multi_report)
         elif args.format == "markdown":
-            output = format_multi_github_summary(multi_report)
+            output = format_multi_github_summary(multi_report, only_failures=args.only_failures)
         else:
-            output = format_multi_terminal_table(multi_report)
+            output = format_multi_terminal_table(multi_report, only_failures=args.only_failures)
 
         quiet_summary = None
         if args.quiet and multi_report.all_passed:

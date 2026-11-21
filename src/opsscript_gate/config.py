@@ -19,7 +19,7 @@ DEFAULTS = {
     "shell": "posix", "mem_limit": "256m", "pids_limit": 128,
     "network": "bridge", "packages": [], "exclude": [], "max_scripts": 20,
     "repeat": 1, "env": {}, "workdir": None, "fail_fast": False,
-    "args": [], "quiet": False,
+    "args": [], "quiet": False, "user": None, "only_failures": False,
 }
 
 MAX_CONFIG_SIZE_BYTES = 256 * 1024
@@ -31,6 +31,19 @@ MAX_ARG_LENGTH = 4096
 
 PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._:-]*$")
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+USER_SPEC_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]*)?$")
+
+
+def validate_user(value: object) -> str:
+    """Validate container user or UID[:GID] specification."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("user must be a nonempty user name or UID[:GID] string")
+    normalized = value.strip()
+    if len(normalized) > 128 or not USER_SPEC_RE.fullmatch(normalized):
+        raise ValueError(
+            f"Invalid user specification '{normalized}'. Expected user, uid, user:group, or uid:gid"
+        )
+    return normalized
 
 
 def validate_args(value: object) -> list[str]:
@@ -166,6 +179,11 @@ def load_config(filename: str | None) -> dict:
         elif key == "quiet":
             if not isinstance(value, bool):
                 raise ValueError("quiet must be a boolean")
+        elif key == "user":
+            config[key] = validate_user(value)
+        elif key == "only_failures":
+            if not isinstance(value, bool):
+                raise ValueError("only_failures must be a boolean")
         elif not isinstance(value, str) or not value.strip():
             raise ValueError(f"{key} must be a nonempty string")
     for key, choices in {"shell": ("posix", "auto", "shebang"),
@@ -199,7 +217,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: Mresyzz/opsscript-gate@v0.9.8
+      - uses: Mresyzz/opsscript-gate@v0.9.9
         with:
           config: .opsscript-gate.json
 """,

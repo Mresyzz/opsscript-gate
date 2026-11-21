@@ -242,14 +242,24 @@ def emit_github_annotations(report: RunReport, script_path: str = "") -> None:
         sys.stdout.flush()
 
 
-def format_terminal_table(report: RunReport, script_path: str = "") -> str:
+def format_terminal_table(
+    report: RunReport,
+    script_path: str = "",
+    only_failures: bool = False,
+) -> str:
     """Format the report as a clean, aligned ASCII terminal table with hints."""
     headers = ["Distro", "Status", "Exit Code", "Duration", "Details"]
+
+    target_results = (
+        [r for r in report.results if r.status != DistroStatus.PASS]
+        if only_failures
+        else report.results
+    )
 
     rows: list[list[str]] = []
     hints: list[tuple[str, str]] = []
 
-    for r in report.results:
+    for r in target_results:
         safe_distro = sanitize_display_text(r.distro)
         exit_code_str = str(r.exit_code) if r.exit_code is not None else "-"
         duration_str = f"{r.duration:.2f}s"
@@ -343,18 +353,29 @@ def format_terminal_table(report: RunReport, script_path: str = "") -> str:
     return "\n".join(lines)
 
 
-def format_multi_terminal_table(multi_report: MultiScriptReport) -> str:
+def format_multi_terminal_table(
+    multi_report: MultiScriptReport,
+    only_failures: bool = False,
+) -> str:
     """Format multiple script reports as aligned terminal tables."""
     parts: list[str] = []
     for script_name, report in multi_report.reports.items():
-        parts.append(format_terminal_table(report, script_path=script_name))
+        if only_failures and report.all_passed:
+            continue
+        parts.append(
+            format_terminal_table(report, script_path=script_name, only_failures=only_failures)
+        )
         parts.append("")
     summary_status = "ALL PASSED" if multi_report.all_passed else "SOME FAILED"
     parts.append(f"Multi-Script Run: {len(multi_report.reports)} scripts tested | Overall: {summary_status}")
     return "\n".join(parts)
 
 
-def format_markdown_compatibility_card(report: RunReport, script_path: str = "") -> str:
+def format_markdown_compatibility_card(
+    report: RunReport,
+    script_path: str = "",
+    only_failures: bool = False,
+) -> str:
     """
     Format an elegant GitHub-flavored Markdown Compatibility Card.
     Suitable for Step Summary and easily copyable into PR / Issue comments.
@@ -362,6 +383,11 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     """
     passed_count = sum(1 for r in report.results if r.status == DistroStatus.PASS)
     total_count = len(report.results)
+    target_results = (
+        [r for r in report.results if r.status != DistroStatus.PASS]
+        if only_failures
+        else report.results
+    )
     badge = (
         f"✅ **ALL PASSED ({passed_count}/{total_count})**"
         if report.all_passed
@@ -383,7 +409,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     lines.append("| Distribution | Status | Exit Code | Time | Diagnostic & Recommendation |")
     lines.append("| :--- | :---: | :---: | :---: | :--- |")
 
-    for r in report.results:
+    for r in target_results:
         if r.status == DistroStatus.PASS:
             status_icon = "✅ PASS"
         elif r.status == DistroStatus.FLAKY:
@@ -440,7 +466,7 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
         "| Distribution | Status | Time | Details |",
         "| :--- | :---: | :---: | :--- |",
     ]
-    for r in report.results:
+    for r in target_results:
         icon = "✅" if r.status == DistroStatus.PASS else ("⚠️" if r.status == DistroStatus.FLAKY else "❌")
         distro_cell = _table_code_span(r.distro)
         if r.status == DistroStatus.PASS:
@@ -500,12 +526,23 @@ def format_markdown_compatibility_card(report: RunReport, script_path: str = "")
     return "\n".join(lines)
 
 
-def format_github_summary(report: RunReport, script_path: str = "") -> str:
+def format_github_summary(
+    report: RunReport,
+    script_path: str = "",
+    only_failures: bool = False,
+) -> str:
     """Format report as GitHub Actions Step Summary markdown."""
-    return format_markdown_compatibility_card(report, script_path=script_path)
+    return format_markdown_compatibility_card(
+        report,
+        script_path=script_path,
+        only_failures=only_failures,
+    )
 
 
-def format_multi_github_summary(multi_report: MultiScriptReport) -> str:
+def format_multi_github_summary(
+    multi_report: MultiScriptReport,
+    only_failures: bool = False,
+) -> str:
     """Format multiple script reports into a consolidated GitHub Step Summary."""
     passed_scripts = sum(1 for r in multi_report.reports.values() if r.all_passed)
     total_scripts = len(multi_report.reports)
@@ -520,7 +557,13 @@ def format_multi_github_summary(multi_report: MultiScriptReport) -> str:
     ]
 
     for script_name, report in multi_report.reports.items():
-        card = format_markdown_compatibility_card(report, script_path=script_name)
+        if only_failures and report.all_passed:
+            continue
+        card = format_markdown_compatibility_card(
+            report,
+            script_path=script_name,
+            only_failures=only_failures,
+        )
         lines.append(card)
         lines.append("\n---\n")
 
