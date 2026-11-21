@@ -147,6 +147,22 @@ COMMON_COMMAND_PACKAGES: dict[str, dict[str, str]] = {
     "htop": {"debian": "htop", "alpine": "htop", "rhel": "htop"},
     "dash": {"debian": "dash", "alpine": "dash", "rhel": "dash"},
     "ash": {"debian": "ash", "alpine": "busybox", "rhel": "busybox"},
+    "ip": {"debian": "iproute2", "alpine": "iproute2", "rhel": "iproute"},
+    "ss": {"debian": "iproute2", "alpine": "iproute2", "rhel": "iproute"},
+    "ping": {"debian": "iputils-ping", "alpine": "iputils", "rhel": "iputils"},
+    "dig": {"debian": "dnsutils", "alpine": "bind-tools", "rhel": "bind-utils"},
+    "nslookup": {"debian": "dnsutils", "alpine": "bind-tools", "rhel": "bind-utils"},
+    "lsof": {"debian": "lsof", "alpine": "lsof", "rhel": "lsof"},
+    "killall": {"debian": "psmisc", "alpine": "psmisc", "rhel": "psmisc"},
+    "pkill": {"debian": "procps", "alpine": "procps", "rhel": "procps-ng"},
+    "pgrep": {"debian": "procps", "alpine": "procps", "rhel": "procps-ng"},
+    "bc": {"debian": "bc", "alpine": "bc", "rhel": "bc"},
+    "file": {"debian": "file", "alpine": "file", "rhel": "file"},
+    "tree": {"debian": "tree", "alpine": "tree", "rhel": "tree"},
+    "less": {"debian": "less", "alpine": "less", "rhel": "less"},
+    "strace": {"debian": "strace", "alpine": "strace", "rhel": "strace"},
+    "tput": {"debian": "ncurses-bin", "alpine": "ncurses", "rhel": "ncurses"},
+    "uuidgen": {"debian": "uuid-runtime", "alpine": "util-linux", "rhel": "util-linux"},
 }
 
 

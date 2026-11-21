@@ -1284,5 +1284,259 @@ def test_cli_dry_run_and_quiet_mode(tmp_path, capsys):
         assert "debian:12-slim" in out_fail
 
 
+def test_config_env_not_clobbered_when_cli_env_omitted(tmp_path, capsys, monkeypatch):
+    from opsscript_gate.cli import main
+    import json
+
+    monkeypatch.delenv("CFG_ONLY_VAR", raising=False)
+    monkeypatch.delenv("CFG_OVERRIDE_VAR", raising=False)
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\necho ok\n")
+
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({
+        "env": {
+            "CFG_ONLY_VAR": "from_config",
+            "CFG_OVERRIDE_VAR": "old_config_val",
+        }
+    }))
+
+    # 1. 不传 --env 时，配置中的 env 值必须完整保留，不能被置空
+    code = main([
+        "run",
+        str(script),
+        "--config", str(cfg_file),
+        "--dry-run",
+        "--format", "json",
+    ])
+    assert code == 0
+    plan1 = json.loads(capsys.readouterr().out)
+    assert plan1["env"] == {
+        "CFG_ONLY_VAR": "from_config",
+        "CFG_OVERRIDE_VAR": "old_config_val",
+    }
+
+    # 2. 传入 --env 仅覆盖其中之一时，其余配置变量也应完整合并保留
+    code2 = main([
+        "run",
+        str(script),
+        "--config", str(cfg_file),
+        "--env", "CFG_OVERRIDE_VAR=new_cli_val",
+        "--dry-run",
+        "--format", "json",
+    ])
+    assert code2 == 0
+    plan2 = json.loads(capsys.readouterr().out)
+    assert plan2["env"] == {
+        "CFG_ONLY_VAR": "from_config",
+        "CFG_OVERRIDE_VAR": "new_cli_val",
+    }
+
+
+def test_cli_args_with_leading_dashes_and_explicit_isolation(tmp_path, capsys):
+    from opsscript_gate.cli import main
+    import json
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\n")
+
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({
+        "network": "bridge",
+        "fail_fast": False,
+    }))
+
+    # 传入以短横线开头的参数值，并故意包含 "--network=none" 与 "-x"
+    code = main([
+        "run",
+        str(script),
+        "--config", str(cfg_file),
+        "--args", "--dry-run --network=none -x",
+        "--dry-run",
+        "--format", "json",
+    ])
+    assert code == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["args"] == ["--dry-run", "--network=none", "-x"]
+    # 配置文件默认值不应被 --args 中的文本内容误判覆盖
+    assert plan["network"] == "bridge"
+    assert plan["fail_fast"] is False
+
+
+def test_repeat_fail_fast_accurate_attempt_counts(tmp_path):
+    from opsscript_gate.runner import run_matrix
+    from opsscript_gate.models import DistroStatus
+    from unittest.mock import MagicMock
+
+    script = tmp_path / "flaky.sh"
+    script.write_text("#!/bin/sh\n")
+
+    mock_client = MagicMock()
+    c_pass = MagicMock()
+    c_pass.wait.return_value = {"StatusCode": 0}
+    c_pass.logs.return_value = b"ok\n"
+    c_pass.attrs = {"State": {"ExitCode": 0}}
+
+    c_fail = MagicMock()
+    c_fail.wait.return_value = {"StatusCode": 1}
+    c_fail.logs.return_value = b"boom\n"
+    c_fail.attrs = {"State": {"ExitCode": 1}}
+
+    # 第 1 次成功，第 2 次失败后触发 fail_fast 中止（总 repeat=5）
+    mock_client.containers.create.side_effect = [c_pass, c_fail]
+
+    report = run_matrix(
+        script_path=str(script),
+        matrix=["debian:12-slim"],
+        client=mock_client,
+        repeat=5,
+        jobs=1,
+        fail_fast=True,
+    )
+    assert mock_client.containers.create.call_count == 2
+    assert len(report.results) == 1
+    res = report.results[0]
+    assert res.status == DistroStatus.FLAKY
+    assert res.attempts == 2
+    assert res.passed_attempts == 1
+    assert res.failed_attempts == 1
+    assert "1/2 attempts passed and 1/2 failed" in (res.error_message or "")
+
+
+def test_validate_user_and_runner_user_passthrough(tmp_path, capsys):
+    from opsscript_gate.config import validate_user, load_config
+    from opsscript_gate.runner import run_matrix
+    from opsscript_gate.cli import main
+    from unittest.mock import MagicMock
+    import json
+    import pytest
+
+    assert validate_user("1000:1000") == "1000:1000"
+    assert validate_user(" nobody ") == "nobody"
+    assert validate_user("app_user:app-group") == "app_user:app-group"
+
+    for bad in ("", "   ", "-bad", "user name", "a:b:c", "a" * 129, 1000):
+        with pytest.raises(ValueError):
+            validate_user(bad)
+
+    cfg_file = tmp_path / ".opsscript-gate.json"
+    cfg_file.write_text(json.dumps({"user": "1000:1000"}))
+    assert load_config(str(cfg_file))["user"] == "1000:1000"
+
+    script = tmp_path / "script.sh"
+    script.write_text("#!/bin/sh\nid\n")
+
+    mock_client = MagicMock()
+    mock_container = MagicMock()
+    mock_container.wait.return_value = {"StatusCode": 0}
+    mock_container.logs.return_value = b"uid=1000\n"
+    mock_container.attrs = {"State": {"ExitCode": 0}}
+    mock_client.containers.create.return_value = mock_container
+
+    report = run_matrix(
+        script_path=str(script),
+        matrix=["debian:12-slim"],
+        client=mock_client,
+        user="1000:1000",
+    )
+    assert report.all_passed is True
+    assert mock_client.containers.create.call_args.kwargs["user"] == "1000:1000"
+
+    # CLI dry-run 应展示 User
+    code = main(["run", str(script), "--user", "nobody", "--dry-run"])
+    assert code == 0
+    assert "User: nobody" in capsys.readouterr().out
+
+
+def test_only_failures_table_and_markdown_filtering(tmp_path, capsys):
+    from opsscript_gate.models import DistroStatus, MultiScriptReport, RunReport, SingleResult
+    from opsscript_gate.reporter import (
+        format_github_summary,
+        format_multi_github_summary,
+        format_multi_terminal_table,
+        format_terminal_table,
+    )
+    from opsscript_gate.cli import main
+    from unittest.mock import patch
+
+    r_pass = SingleResult("debian:12-slim", DistroStatus.PASS, 0, 0.1)
+    r_fail = SingleResult("alpine:3.20", DistroStatus.FAIL, 127, 0.2, error_message="missing cmd")
+
+    single_report = RunReport([r_pass, r_fail], total_duration=0.3)
+
+    # 1. 单脚本表格与 Markdown 均应隐藏 PASS 行，但保留总通过数统计
+    table_filtered = format_terminal_table(single_report, script_path="a.sh", only_failures=True)
+    assert "debian:12-slim" not in table_filtered
+    assert "alpine:3.20" in table_filtered
+
+    md_filtered = format_github_summary(single_report, script_path="a.sh", only_failures=True)
+    assert "1/2 Passed" in md_filtered
+    assert "debian:12-slim" not in md_filtered
+    assert "alpine:3.20" in md_filtered
+
+    # 2. 多脚本报告中，全通过的脚本块应被隐藏
+    multi = MultiScriptReport(
+        reports={
+            "pass.sh": RunReport([r_pass], total_duration=0.1),
+            "fail.sh": single_report,
+        },
+        total_duration=0.4,
+    )
+    multi_table = format_multi_terminal_table(multi, only_failures=True)
+    assert "pass.sh" not in multi_table
+    assert "fail.sh" in multi_table
+    assert "Multi-Script Run: 2 scripts tested" in multi_table
+
+    multi_md = format_multi_github_summary(multi, only_failures=True)
+    assert "pass.sh" not in multi_md
+    assert "fail.sh" in multi_md
+    assert "1 / 2 Scripts Passed" in multi_md
+
+    # 3. CLI dry-run 与实际执行透传 --only-failures
+    s = tmp_path / "test.sh"
+    s.write_text("#!/bin/sh\n")
+    with patch("opsscript_gate.cli.run_checked_matrix", return_value=single_report):
+        code = main(["run", str(s), "--only-failures"])
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "debian:12-slim" not in out
+        assert "alpine:3.20" in out
+
+
+def test_remediation_extended_network_and_system_packages():
+    from opsscript_gate.remediation import resolve_package_recommendation
+
+    cases = [
+        ("ip", "ubuntu:22.04", "iproute2"),
+        ("ip", "fedora:40", "iproute"),
+        ("ss", "alpine:3.20", "iproute2"),
+        ("ping", "debian:12-slim", "iputils-ping"),
+        ("ping", "alpine:3.20", "iputils"),
+        ("dig", "debian:12-slim", "dnsutils"),
+        ("dig", "alpine:3.20", "bind-tools"),
+        ("dig", "rockylinux:9", "bind-utils"),
+        ("nslookup", "alpine:3.20", "bind-tools"),
+        ("lsof", "debian:12-slim", "lsof"),
+        ("killall", "alpine:3.20", "psmisc"),
+        ("pkill", "rhel:9", "procps-ng"),
+        ("pgrep", "debian:12-slim", "procps"),
+        ("bc", "alpine:3.20", "bc"),
+        ("file", "debian:12-slim", "file"),
+        ("tree", "alpine:3.20", "tree"),
+        ("less", "ubuntu:24.04", "less"),
+        ("strace", "alpine:3.20", "strace"),
+        ("tput", "debian:12-slim", "ncurses-bin"),
+        ("tput", "alpine:3.20", "ncurses"),
+        ("uuidgen", "debian:12-slim", "uuid-runtime"),
+        ("uuidgen", "alpine:3.20", "util-linux"),
+    ]
+    for cmd, distro, expected_pkg in cases:
+        pkg, install_cmd = resolve_package_recommendation(cmd, distro)
+        assert pkg == expected_pkg, f"Mismatch for {cmd} on {distro}: got {pkg}"
+        assert install_cmd is not None and expected_pkg in install_cmd
+
+
+
 
 
